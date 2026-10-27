@@ -9,6 +9,7 @@ on top of the real site:
 - **Comment anywhere** — press `C` (or the Comment button), click any text or image, leave a note. Pins stick to the element, so they stay put across screen sizes. Threads support replies and resolve.
 - **Approve / Needs edits per section** — every `<section>` gets a chip; progress shows in the toolbar.
 - **Flag sections for review** — open a page from the dashboard (**Open** = team mode, `?team=1`) and click **Flag for review** on the sections you want the client to look at, with an optional note ("Updated copy"). The client then sees only those sections, highlighted yellow; they turn green when approved and red when edits are requested. **Highlight area** (team mode) lets you pick any block on the page — not just detected sections — and use ⬆ Bigger / ⬇ Smaller to choose exactly what to outline. **↺ Ask again** resets a reviewed section to "needs your review" after you update the copy. With no flags, every section is reviewable.
+- **Blank wireframe pages** — tick **Blank wireframe** when adding pages (or **Make blank** on a page). The client gets `/c/:id`: the live page next to a copy of it with every piece of text replaced by grey placeholder bars (same layout, images kept), scrolling in sync, with **Side by side / Blank / Live** views. They comment on the blank side as usual. The original text stays in the DOM, so a later "fill in the blanks" mode can target each slot.
 - **✨ SEO-optimize** — the client types new copy or an instruction ("pls select 4: …") and Claude returns three SEO-friendly versions that respect the element type (H1, stat label, body…) and the page's target keywords. They pick one; the team sees both the note and the chosen copy.
 - **Team dashboard** at `/` — projects, pages and their progress; per page: section status, comments, copy changes, Markdown export.
 
@@ -57,7 +58,8 @@ import `http://localhost:8888/fixtures/sitemap.xml` (or paste
 public/index.html, dashboard.js   team dashboard
 public/portal.html, portal.js     client portal (/p/:id)
 public/overlay/overlay.js         comment layer (shadow DOM, injected into the staging page)
-netlify/functions/review.mjs      GET /r/:id         fetch staging HTML + inject overlay
+netlify/functions/review.mjs      GET /r/:id         fetch staging HTML + inject overlay (?view=live: plain page)
+netlify/functions/compare.mjs     GET /c/:id         live vs blank wireframe, side by side
 netlify/functions/projects.mjs    /api/projects      projects (admin; GET one is public for the portal)
 netlify/functions/pages.mjs       /api/pages         staging pages, single or bulk (admin)
 netlify/functions/sitemap.mjs     /api/sitemap       list URLs from a staging sitemap (admin)

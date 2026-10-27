@@ -10,11 +10,18 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-27.12"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.1"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === PAGE);
-  const reviewUrl = (id) => `${API}/r/${id}`;
+  const TEAM_QS = new URLSearchParams(location.search).has("team") ? "?team=1" : "";
+  // Blank wireframe pages open in the side-by-side view (/c/), others in the plain review (/r/).
+  const reviewUrl = (id) => {
+    const p = (CFG.pages || []).find((x) => x.id === id);
+    return `${API}/${p?.blank ? "c" : "r"}/${id}${TEAM_QS}`;
+  };
+  // Inside the side-by-side view we're in an iframe: page changes should move the whole view.
+  const go = (url) => ((window.top !== window ? window.top : window).location.href = url);
   const urlKey = (u) => {
     try {
       const x = new URL(u, location.href);
@@ -111,6 +118,41 @@
       throw new Error(data.error || `Request failed (${res.status}) on ${what}${text ? `: ${text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 120)}` : ""}`);
     }
     return data;
+  }
+
+  // ---------- blank wireframe ----------
+  // Copy becomes grey placeholder bars in exactly the same place, so the layout (and every
+  // comment anchor) matches the live page. Original text stays in the DOM, just invisible.
+  const SKIP = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEXTAREA", "OPTION", "TITLE"]);
+  function blankify(root) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) => {
+        const p = n.parentElement;
+        if (!p || !n.nodeValue.trim() || SKIP.has(p.tagName) || p.classList.contains("er-blank") || p.closest("svg")) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    for (const n of nodes) {
+      const span = document.createElement("span");
+      span.className = "er-blank";
+      n.parentNode.insertBefore(span, n);
+      span.appendChild(n);
+    }
+  }
+  if (CFG.blank) {
+    const run = () => blankify(document.body);
+    if (document.body) run();
+    document.addEventListener("DOMContentLoaded", run);
+    let t = 0;
+    // Sliders, tabs and lazy content add text later.
+    new MutationObserver(() => {
+      clearTimeout(t);
+      t = setTimeout(run, 120);
+    }).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
   }
 
   // ---------- anchoring ----------
@@ -600,10 +642,10 @@
     if (!state.pagesOpen) return;
     const rows = state.projectPages || SIBLINGS;
     panel.innerHTML = `<div class="pp-h"><b>${esc(PROJECT?.name || "Pages")}</b><span class="sp"></span>
-        ${PROJECT ? `<a class="link" href="${API}/p/${PROJECT.id}">Overview</a>` : ""}</div>
+        ${PROJECT ? `<a class="link" href="${API}/p/${PROJECT.id}" target="_top">Overview</a>` : ""}</div>
       <div class="pp-list">${rows
         .map(
-          (p, i) => `<a class="pp-item${p.id === PAGE ? " cur" : ""}" href="${reviewUrl(p.id)}">
+          (p, i) => `<a class="pp-item${p.id === PAGE ? " cur" : ""}" href="${reviewUrl(p.id)}" target="_top">
           <span class="dot ${p.state || ""}" title="${STATE_LABEL[p.state] || ""}"></span>
           <span class="pp-name">${i + 1}. ${esc(p.name)}</span>
           ${p.counts?.open ? `<span class="n">${p.counts.open}</span>` : ""}</a>`,
@@ -622,8 +664,8 @@
     const next = SIBLINGS[pageIndex + 1];
     const t = $(".toast");
     t.innerHTML = next
-      ? `All sections on this page reviewed. <a class="link light" href="${reviewUrl(next.id)}">Next: ${esc(next.name)} →</a>`
-      : `All sections on this page reviewed. ${PROJECT ? `<a class="link light" href="${API}/p/${PROJECT.id}">Back to all pages →</a>` : ""}`;
+      ? `All sections on this page reviewed. <a class="link light" href="${reviewUrl(next.id)}" target="_top">Next: ${esc(next.name)} →</a>`
+      : `All sections on this page reviewed. ${PROJECT ? `<a class="link light" href="${API}/p/${PROJECT.id}" target="_top">Back to all pages →</a>` : ""}`;
     t.hidden = false;
     clearTimeout(toast._t);
     toast._t = setTimeout(() => (t.hidden = true), 9000);
@@ -897,7 +939,7 @@
         render();
       } else if (act === "prev" || act === "next") {
         const target = SIBLINGS[pageIndex + (act === "next" ? 1 : -1)];
-        if (target) location.href = reviewUrl(target.id);
+        if (target) go(reviewUrl(target.id));
       } else if (act === "sections") {
         state.showSections = !state.showSections;
         render();
@@ -1035,7 +1077,7 @@
           const sib = siblingByUrl.get(urlKey(a.href));
           if (sib && sib.id !== PAGE) {
             e.preventDefault();
-            location.href = reviewUrl(sib.id);
+            go(reviewUrl(sib.id));
           }
         }
         if (state.pagesOpen) {

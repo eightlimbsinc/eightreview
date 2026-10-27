@@ -34,7 +34,7 @@ async function render() {
     </div>
     <div class="card progress-card">
       <div class="row"><b>${approved} of ${pages.length} pages approved</b><span class="sp"></span>
-        ${next ? `<a class="btn primary" href="/r/${next.id}">${next.state === "not_started" ? "Start" : "Continue"}: ${esc(next.name)} →</a>` : `<span class="tag green">All done, thank you!</span>`}</div>
+        ${next ? `<a class="btn primary" href="/${next.blank ? "c" : "r"}/${next.id}">${next.state === "not_started" ? "Start" : "Continue"}: ${esc(next.name)} →</a>` : `<span class="tag green">All done, thank you!</span>`}</div>
       <div class="bar"><span style="width:${pct}%"></span></div>
     </div>
     <div class="pages">${pages
@@ -43,8 +43,8 @@ async function render() {
         const sec = p.counts.sections
           ? `${p.counts.approved + p.counts.needsEdits}/${p.counts.sections} sections reviewed`
           : "";
-        return `<a class="card page link-card" href="/r/${p.id}">
-          <div><h3>${i + 1}. ${esc(p.name)}</h3>
+        return `<a class="card page link-card" href="/${p.blank ? "c" : "r"}/${p.id}">
+          <div><h3>${i + 1}. ${esc(p.name)}${p.blank ? ` <span class="tag">Layout review</span>` : ""}</h3>
             <div class="url">${esc(new URL(p.url).pathname)}</div>
             <div class="stats"><span class="tag ${color}">${label}</span>
               ${p.counts.open ? `<span class="tag">${p.counts.open} open comment${p.counts.open === 1 ? "" : "s"}</span>` : ""}

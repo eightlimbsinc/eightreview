@@ -27,6 +27,8 @@ function cleanFields(body) {
   if (body.name !== undefined) out.name = clip(body.name, 200);
   if (body.keywords !== undefined) out.keywords = clip(body.keywords, 1000);
   if (body.order !== undefined && Number.isFinite(body.order)) out.order = body.order;
+  // Blank wireframe: the client reviews the page's layout with the copy removed.
+  if (body.blank !== undefined) out.blank = Boolean(body.blank);
   if (body.url !== undefined) out.url = parseUrl(body.url);
   return out;
 }
@@ -80,6 +82,7 @@ export default handle(async (req, context) => {
         name: fields.name || nameFromUrl(fields.url),
         keywords: fields.keywords || "",
         url: fields.url,
+        blank: Boolean(fields.blank ?? body.blank),
         order: order++,
         createdAt: new Date().toISOString(),
       };

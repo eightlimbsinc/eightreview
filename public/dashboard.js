@@ -31,7 +31,8 @@ async function api(path, opts = {}) {
   return data;
 }
 
-const reviewLink = (p) => `${location.origin}/r/${p.id}`;
+// Blank wireframe pages are reviewed side by side with the live page (/c/).
+const reviewLink = (p) => `${location.origin}/${p.blank ? "c" : "r"}/${p.id}`;
 
 async function copyText(text, btn) {
   try {
@@ -129,8 +130,8 @@ function parseLines(text) {
     });
 }
 
-async function addPages(projectId, pages, msgEl) {
-  const { created, skipped } = await api("/api/pages", { method: "POST", body: { projectId, pages } });
+async function addPages(projectId, pages, msgEl, blank = false) {
+  const { created, skipped } = await api("/api/pages", { method: "POST", body: { projectId, pages, blank } });
   msgEl.hidden = false;
   msgEl.className = skipped.length ? "err" : "muted";
   msgEl.textContent =
@@ -176,7 +177,9 @@ async function renderProject(id) {
       ${addTab === "paste"
         ? `<form id="paste" class="bulk">
             <textarea name="urls" rows="5" placeholder="One per line. Optionally name them:\nhttps://blend360new.webflow.io/about-v2\nServices | https://blend360new.webflow.io/services-v2"></textarea>
-            <div class="row"><span class="sp"></span><button class="btn primary">Add pages</button></div></form>`
+            <div class="row"><label class="check" title="The client sees the page's layout with all copy blanked out, next to the live page, and comments on it">
+              <input type="checkbox" name="blank"> Blank wireframe (layout without copy, side by side with live)</label>
+              <span class="sp"></span><button class="btn primary">Add pages</button></div></form>`
         : `<form id="sitemap" class="bulk">
             <div class="row" style="flex-wrap:nowrap"><input name="url" type="url" required placeholder="https://blend360new.webflow.io" value="${esc(firstUrl ? new URL(firstUrl).origin : "")}">
             <button class="btn light">Find pages</button></div>
@@ -188,10 +191,11 @@ async function renderProject(id) {
     ${pages.length ? `<div class="ptable">${pages
       .map((p) => `<div class="prow">
         <span class="dot ${p.state}"></span>
-        <div><div class="name"><a href="#/page/${p.id}">${esc(p.name)}</a></div><div class="url">${esc(p.url)}</div></div>
+        <div><div class="name"><a href="#/page/${p.id}">${esc(p.name)}</a>${p.blank ? ` <span class="tag">Blank wireframe</span>` : ""}</div><div class="url">${esc(p.url)}</div></div>
         <div class="stats" style="margin:0">${stateTag(p.state)}${p.counts.flagged ? `<span class="tag orange">${p.counts.flagged} flagged</span>` : ""}${p.counts.open ? `<span class="tag blue">${p.counts.open} open</span>` : ""}</div>
         <div class="actions">
-          <a class="btn light sm" href="/r/${p.id}?team=1" target="_blank" rel="noopener" title="Opens in team mode, where you can flag sections for the client">Open</a>
+          <a class="btn light sm" href="/${p.blank ? "c" : "r"}/${p.id}?team=1" target="_blank" rel="noopener" title="Opens in team mode, where you can flag sections for the client">Open</a>
+          <button class="btn light sm" data-blank="${p.id}" data-val="${!p.blank}" title="${p.blank ? "Review the real page copy instead" : "Review the layout with copy blanked out, next to the live page"}">${p.blank ? "Use real copy" : "Make blank"}</button>
           <button class="btn light sm" data-rename="${p.id}" data-name="${esc(p.name)}">Rename</button>
           <a class="btn light sm" href="#/page/${p.id}">Feedback</a>
           <button class="btn light sm" data-delpage="${p.id}" data-name="${esc(p.name)}" style="color:var(--red)">✕</button>
@@ -206,7 +210,7 @@ async function renderProject(id) {
     const items = parseLines(e.target.urls.value);
     if (!items.length) return;
     try {
-      if (await addPages(id, items, msg)) setTimeout(() => renderProject(id), 900);
+      if (await addPages(id, items, msg, e.target.blank.checked)) setTimeout(() => renderProject(id), 900);
     } catch (ex) {
       msg.hidden = false;
       msg.className = "err";
@@ -251,6 +255,13 @@ async function renderProject(id) {
     }
   });
 
+  app.querySelectorAll("[data-blank]").forEach(
+    (b) =>
+      (b.onclick = async () => {
+        await api(`/api/pages/${b.dataset.blank}`, { method: "PATCH", body: { blank: b.dataset.val === "true" } });
+        renderProject(id);
+      }),
+  );
   app.querySelectorAll("[data-rename]").forEach(
     (b) =>
       (b.onclick = async () => {
@@ -361,7 +372,7 @@ async function renderDetail(id) {
           ${c.sectionLabel ? `<span class="tag">${esc(c.sectionLabel)}</span>` : ""}
           ${c.viewport ? `<span>${c.viewport < 768 ? "📱" : "🖥"} ${c.viewport}px</span>` : ""}
           <span>${when(c.createdAt)}</span><span class="sp"></span>
-          <a class="btn light sm" href="${esc(reviewLink(page))}#comment-${c.id}" target="_blank" rel="noopener">View on page</a>
+          <a class="btn light sm" href="${location.origin}/r/${page.id}#comment-${c.id}" target="_blank" rel="noopener">View on page</a>
           <button class="btn light sm" data-resolve="${c.id}" data-val="${!c.resolved}">${c.resolved ? "Reopen" : "Resolve"}</button>
         </div>
         ${c.anchor?.text ? `<div class="on-text">On: “${esc(c.anchor.text)}”</div>` : ""}
