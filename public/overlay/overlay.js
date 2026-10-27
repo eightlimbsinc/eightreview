@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.15"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.16"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -1664,12 +1664,15 @@
     true,
   );
 
-  // The page element under a point, looking through the glass sheet.
+  // The page element under a point, looking through the glass sheet. elementsFromPoint lists the
+  // whole stack, so the glass never has to stop catching the mouse; toggling its pointer-events
+  // let Webflow see a split-second hover on every move, which made hover-flip cards flicker.
   function pageAt(x, y) {
-    glass.style.pointerEvents = "none";
-    const el = document.elementFromPoint(x, y);
-    glass.style.pointerEvents = "";
-    return el && el !== host && el !== document.documentElement && el !== document.body ? el : null;
+    for (const el of document.elementsFromPoint(x, y)) {
+      if (el === host || host.contains(el)) continue;
+      return el === document.documentElement || el === document.body ? null : el;
+    }
+    return null;
   }
 
   function showFlipButton(el) {

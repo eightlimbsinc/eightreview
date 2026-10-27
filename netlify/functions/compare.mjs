@@ -136,6 +136,15 @@ export default handle(async (req, context) => {
   document.querySelectorAll(".versions a").forEach((a) => a.addEventListener("click", () => {
     try { sessionStorage.setItem("eightreview:compare-y", frames[1].contentWindow.scrollY); } catch {}
   }));
+  // Shortcuts pressed on this outer screen (C = comment, Esc) go to the blank page's review layer.
+  document.addEventListener("keydown", (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey || !["c", "C", "Escape"].includes(e.key)) return;
+    if (e.target.closest && e.target.closest("input, textarea")) return;
+    try {
+      frames[1].contentWindow.focus();
+      frames[1].contentDocument.dispatchEvent(new KeyboardEvent("keydown", { key: e.key, bubbles: true }));
+    } catch {}
+  });
   frames.forEach((f, i) => {
     f.addEventListener("load", () => {
       try { f.contentWindow.addEventListener("scroll", () => follow(f, frames[1 - i]), { passive: true }); } catch {}

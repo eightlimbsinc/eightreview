@@ -23,5 +23,15 @@
     <div class="face front"><h3>IT Leaders</h3><p>Front of card two (flips on hover).</p></div>
     <div class="face back"><p>Back of card two.</p></div>
   </div></div>
+  <div class="card" id="c3"><div class="inner">
+    <div class="face front"><h3>Automation Leaders</h3><p>Front of card three (Webflow-style JS hover flip).</p></div>
+    <div class="face back"><p>Back of card three.</p><ul><li>Orchestration</li><li>Observability</li></ul></div>
+  </div></div>
 </div></section>
+<script>
+  // Like a Webflow IX2 hover interaction: mouse events, not CSS :hover.
+  const c3 = document.getElementById("c3");
+  c3.addEventListener("mouseenter", () => c3.classList.add("flipped"));
+  c3.addEventListener("mouseleave", () => c3.classList.remove("flipped"));
+</script>
 </body></html>
