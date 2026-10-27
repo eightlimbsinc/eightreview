@@ -4,12 +4,16 @@
 //        { pageId, sectionKey, scoreOnly: true }                  re-score the existing copy
 // Netlify answers 202 straight away (background function, up to 15 min). Progress is written
 // to flags/<pageId>[sectionKey].recommendation, which the overlay polls:
-//   status "writing" -> "scoring" (copy ready) -> "ready" (scores ready) | "error"
+//   status "writing" -> "scoring" -> ("improving" -> "scoring") -> "ready" | "error"
+// Pipeline: write (high effort) -> proofread -> score with the Blend360 rubric -> if the section
+// score is under REVISE_BELOW, one revision using the rubric's feedback -> proofread -> re-score,
+// keeping whichever version scored better.
 import Anthropic from "@anthropic-ai/sdk";
 import { store, readBody, isAdmin, clip, handle, json } from "./_lib/store.mjs";
-import { RUBRIC_PROMPT, RUBRIC_SCHEMA, RUBRIC_OUTPUT_NOTE, reconcile } from "./_lib/rubric.mjs";
+import { RUBRIC_PROMPT, RUBRIC_SCHEMA, RUBRIC_OUTPUT_NOTE, reconcile, sectionScores, sectionGaps } from "./_lib/rubric.mjs";
 
 const MODEL = "claude-opus-5-5";
+const REVISE_BELOW = 75;
 
 const WRITER = `You are Blend360's SEO and AEO (answer-engine optimization) copywriter.
 You rewrite the copy of one section of a web page so it ranks in search and gets quoted by AI answer engines,
@@ -21,6 +25,10 @@ Your copy will be scored by Blend360's Content Dashboard Rubric (SEO, AEO, Brand
 - Use plain, active sentences; define acronyms; spell the company "Blend360".
 - Never invent statistics, client names, awards, product names or claims. Keep every number and fact from the current copy unless the team note says otherwise.
 - Keep each element's role and rough length: headings short; stat labels a few words; buttons 2-4 words, action-led; paragraphs 1-3 sentences unless the original is longer.
+
+Before answering, re-read every sentence you wrote: it must be grammatical and natural when read aloud
+(subject-verb agreement, no doubled or missing words, no awkward keyword insertion). Never force a keyword
+in where it breaks the sentence; rephrase the sentence instead.
 
 Return exactly one recommended text per input element, in the same order (same index).
 Choose 2-5 SEO keywords (short head terms) and 2-5 AEO long-tail phrases (natural question-style or conversational phrases).
@@ -48,15 +56,38 @@ const WRITER_SCHEMA = {
   },
 };
 
+const PROOFREADER = `You are a meticulous copy editor for Blend360's website.
+Fix only grammar, spelling, punctuation, subject-verb agreement, doubled or missing words and clearly awkward phrasing.
+Do not change meaning, facts, numbers, tone or length. Keep every protected phrase exactly as written (same words,
+same order); if a protected phrase makes a sentence ungrammatical, rephrase the words around it instead.
+Return every element with the same index, even when nothing needed fixing.`;
+
+const PROOF_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["items"],
+  properties: {
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["index", "text"],
+        properties: { index: { type: "integer" }, text: { type: "string" } },
+      },
+    },
+  },
+};
+
 const client = new Anthropic();
 
-async function ask(system, content, schema) {
+async function ask(system, content, schema, effort = "medium") {
   const stream = client.beta.messages.stream({
     model: MODEL,
     max_tokens: 16000,
     betas: ["server-side-fallback-2026-07-01"],
     fallbacks: "default",
-    output_config: { effort: "medium", format: { type: "json_schema", schema } },
+    output_config: { effort, format: { type: "json_schema", schema } },
     system,
     messages: [{ role: "user", content }],
   });
@@ -106,43 +137,49 @@ export default handle(async (req) => {
   }
   await update(pageId, key, scoreOnly ? { status: "scoring", error: "", evaluation: null } : { status: "writing", error: "", items: [], evaluation: null });
 
-  try {
-    let out, longtail, primary;
-    if (scoreOnly) {
-      out = existing.items;
-      longtail = existing.aeo_longtail || [];
-      primary = existing.primary_keyword || "";
-    } else {
-      // 1) Write the recommended copy.
-      const brief = [
-        `Page: ${page.name}${project?.client ? ` (client: ${project.client})` : ""}`,
-        `URL: ${page.url}`,
-        `Target keywords from the team: ${keywords || "none given; choose them from the page topic"}`,
-        `Section: ${clip(body.label, 200) || "unnamed"}`,
-        `Team note: ${clip(body.note, 300) || "none"}`,
-        `Current copy, one element per line as [index] <tag> text:`,
-        ...items.map((it, i) => `[${i}] <${it.tag}> ${it.original}`),
-      ].join("\n");
-      const written = await ask(WRITER, brief, WRITER_SCHEMA);
-      const byIndex = new Map((written.items || []).map((x) => [x.index, x.recommended]));
-      out = items.map((it, i) => ({ ...it, recommended: clip(byIndex.get(i) ?? it.original, 1200) }));
-      const all = out.map((x) => x.recommended.toLowerCase()).join(" \n ");
-      // Only keep phrases that really appear, so every highlight is real.
-      const used = (list) => [...new Set((list || []).map((k) => String(k).trim()).filter((k) => k && all.includes(k.toLowerCase())))].slice(0, 8);
-      const seo = used(written.seo_keywords);
-      longtail = used(written.aeo_longtail);
-      primary = written.primary_keyword || "";
-      if (!(await update(pageId, key, { status: "scoring", items: out, primary_keyword: clip(written.primary_keyword, 120), seo_keywords: seo, aeo_longtail: longtail, rationale: clip(written.rationale, 600) }))) {
-        return json({ ok: false });
-      }
-    }
+  const brief = [
+    `Page: ${page.name}${project?.client ? ` (client: ${project.client})` : ""}`,
+    `URL: ${page.url}`,
+    `Target keywords from the team: ${keywords || "none given; choose them from the page topic"}`,
+    `Section: ${clip(body.label, 200) || "unnamed"}`,
+    `Team note: ${clip(body.note, 300) || "none"}`,
+    `Current copy, one element per line as [index] <tag> text:`,
+    ...items.map((it, i) => `[${i}] <${it.tag}> ${it.original}`),
+  ].join("\n");
 
-    // 2) Score it with the Blend360 rubric, as an independent evaluator.
+  // Write (or revise) -> proofread -> keep only keywords that really appear in the copy.
+  async function draft(prompt) {
+    const written = await ask(WRITER, prompt, WRITER_SCHEMA, "high");
+    const byIndex = new Map((written.items || []).map((x) => [x.index, x.recommended]));
+    let out = items.map((it, i) => ({ ...it, recommended: clip(byIndex.get(i) ?? it.original, 1200) }));
+    const protectedTerms = [...(written.seo_keywords || []), ...(written.aeo_longtail || [])];
+    const proof = await ask(
+      PROOFREADER,
+      [`Protected phrases (keep exactly): ${protectedTerms.join(" | ") || "none"}`, ``, ...out.map((x, i) => `[${i}] <${x.tag}> ${x.recommended}`)].join("\n"),
+      PROOF_SCHEMA,
+      "low",
+    );
+    const fixed = new Map((proof.items || []).map((x) => [x.index, x.text]));
+    out = out.map((x, i) => ({ ...x, recommended: clip(fixed.get(i) || x.recommended, 1200) }));
+    const all = out.map((x) => x.recommended.toLowerCase()).join(" \n ");
+    // Only keep phrases that really appear, so every highlight is real.
+    const used = (list) => [...new Set((list || []).map((k) => String(k).trim()).filter((k) => k && all.includes(k.toLowerCase())))].slice(0, 8);
+    return {
+      items: out,
+      primary_keyword: clip(written.primary_keyword, 120),
+      seo_keywords: used(written.seo_keywords),
+      aeo_longtail: used(written.aeo_longtail),
+      rationale: clip(written.rationale, 600),
+    };
+  }
+
+  // Score with the Blend360 rubric (independent evaluator), plus the section-level score.
+  async function score(rec) {
     const article = [
       `Content type: Web page section (not a full article). Criteria that need article-only inputs below may be unavailable.`,
       `Section title: ${clip(body.label, 200)}`,
-      `Primary keyword: ${primary || "not specified"}`,
-      `Recommended long-tail keywords: ${longtail.join("; ") || "none"}`,
+      `Primary keyword: ${rec.primary_keyword || "not specified"}`,
+      `Recommended long-tail keywords: ${(rec.aeo_longtail || []).join("; ") || "none"}`,
       `Target audience: enterprise decision-makers evaluating Blend360 (not otherwise specified)`,
       `Meta title: not provided`,
       `Meta description: not provided`,
@@ -150,23 +187,53 @@ export default handle(async (req) => {
       `Cover image: not provided`,
       ``,
       `ARTICLE (HTML):`,
-      asHtml(out, "recommended"),
+      asHtml(rec.items, "recommended"),
     ].join("\n");
-    const evaluation = reconcile(await ask(RUBRIC_PROMPT, `${article}\n\n${RUBRIC_OUTPUT_NOTE}`, RUBRIC_SCHEMA));
-    await update(pageId, key, {
-      status: "ready",
-      evaluation: {
-        seo: evaluation.seo.score,
-        aeo: evaluation.aeo.score,
-        brand_voice: evaluation.brand_voice.score,
-        content_quality: evaluation.content_quality.score,
-        overall: evaluation.overall_assessment.overall_score,
-        editorial_status: clip(evaluation.overall_assessment.editorial_status, 200),
-        summary: clip(evaluation.overall_assessment.summary, 1000),
-        improvements: (evaluation.overall_assessment.priority_improvements || []).slice(0, 5).map((x) => clip(x, 300)),
-        rubric: evaluation.rubric_criteria,
-      },
-    });
+    const ev = reconcile(await ask(RUBRIC_PROMPT, `${article}\n\n${RUBRIC_OUTPUT_NOTE}`, RUBRIC_SCHEMA));
+    const hasQuestion = rec.items.some((x) => /^h[1-6]$/.test(x.tag) && x.recommended.trim().endsWith("?"));
+    return {
+      section: sectionScores(ev.rubric_criteria, { hasQuestion }),
+      gaps: sectionGaps(ev.rubric_criteria, { hasQuestion }),
+      seo: ev.seo.score,
+      aeo: ev.aeo.score,
+      brand_voice: ev.brand_voice.score,
+      content_quality: ev.content_quality.score,
+      overall: ev.overall_assessment.overall_score,
+      editorial_status: clip(ev.overall_assessment.editorial_status, 200),
+      summary: clip(ev.overall_assessment.summary, 1000),
+      improvements: (ev.overall_assessment.priority_improvements || []).slice(0, 5).map((x) => clip(x, 300)),
+      rubric: ev.rubric_criteria,
+    };
+  }
+
+  try {
+    let rec = scoreOnly ? existing : await draft(brief);
+    if (!scoreOnly && !(await update(pageId, key, { status: "scoring", ...rec }))) return json({ ok: false });
+    let evaluation = await score(rec);
+
+    // One automatic revision when the section scores low, using the rubric's own feedback.
+    if (!scoreOnly && (evaluation.section.overall ?? 100) < REVISE_BELOW) {
+      await update(pageId, key, { status: "improving" });
+      const feedback = [
+        brief,
+        ``,
+        `Your previous draft (same indexes):`,
+        ...rec.items.map((x, i) => `[${i}] <${x.tag}> ${x.recommended}`),
+        ``,
+        `The Blend360 rubric scored this draft ${evaluation.section.overall}/100 for a page section. Fix these gaps without inventing facts:`,
+        ...evaluation.gaps.map((g) => `- ${g}`),
+        ...evaluation.improvements.map((g) => `- ${g}`),
+        `Ignore article-only requirements (meta title/description, word count, FAQ, cover image, slug).`,
+      ].join("\n");
+      const revised = await draft(feedback);
+      const revisedEval = await score(revised);
+      if ((revisedEval.section.overall ?? 0) >= (evaluation.section.overall ?? 0)) {
+        rec = revised;
+        evaluation = revisedEval;
+      }
+    }
+    const { gaps, ...stored } = evaluation;
+    await update(pageId, key, { status: "ready", ...(scoreOnly ? {} : rec), evaluation: stored });
   } catch (e) {
     console.error("[recommend]", e);
     // Keep the API's own reason (e.g. "Schema is too complex…") so the team can see what went wrong.

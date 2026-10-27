@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.8"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.9"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -837,7 +837,9 @@
   const BLOCKS = "h1,h2,h3,h4,h5,h6,p,li,a,button,blockquote,figcaption,label,td,th,dt,dd";
   const TAG_NAMES = { h1: "Main heading", h2: "Heading", h3: "Heading", h4: "Small heading", h5: "Small heading", h6: "Small heading",
     p: "Paragraph", li: "List item", a: "Button / link", button: "Button", blockquote: "Quote", figcaption: "Caption", label: "Label" };
-  const pending = (r) => r && (r.status === "writing" || r.status === "scoring");
+  const pending = (r) => r && ["writing", "scoring", "improving"].includes(r.status);
+  // Clients only ever see the finished suggestion, never a draft that's still being scored or improved.
+  const visibleTo = (r) => r?.items?.length && (state.team || !pending(r));
 
   function sectionItems(sec) {
     const items = [];
@@ -908,7 +910,7 @@
 
   function suggestButton(key, flag) {
     const r = flag?.recommendation;
-    if (r?.items?.length) {
+    if (visibleTo(r)) {
       const on = state.panel === key ? " on" : "";
       return `<button data-act="sugg-open" class="sugg-btn${on}" title="See the recommended SEO/AEO copy for this section">💡 Suggested copy</button>`;
     }
@@ -953,7 +955,7 @@
     const flag = key && state.flags[key];
     const r = flag?.recommendation;
     const sec = key && state.sections.find((x) => x.key === key);
-    if (!r?.items?.length || !sec) {
+    if (!visibleTo(r) || !sec) {
       $(".toolbar").classList.remove("docked");
       panel.hidden = true;
       $(".sugg-arrow").hidden = true;
@@ -1007,12 +1009,22 @@
         .join("")}</div>
       ${r.rationale && !editing ? `<p class="sp-why"><b>Why it's better:</b> ${esc(r.rationale)}</p>` : ""}
       ${pending(r)
-        ? `<div class="sp-score busy"><span class="spin"></span> Checking the score with the Blend360 SEO/AEO rubric…</div>`
+        ? `<div class="sp-score busy"><span class="spin"></span> ${r.status === "improving" ? "Improving the copy using the rubric's feedback…" : "Checking the score with the Blend360 SEO/AEO rubric…"}</div>`
         : ev
-          ? `<details class="sp-score"><summary>Score <b>${ev.overall}/100</b> ${scoreChip("SEO", ev.seo)}${scoreChip("AEO", ev.aeo)}${scoreChip("Voice", ev.brand_voice)}${scoreChip("Quality", ev.content_quality)}</summary>
+          ? (() => {
+              const sec = ev.section;
+              const head = sec?.overall != null
+                ? `Section score <b>${sec.overall}/100</b> ${["seo", "aeo", "brand_voice", "content_quality"]
+                    .filter((k) => sec[k] != null)
+                    .map((k) => scoreChip({ seo: "SEO", aeo: "AEO", brand_voice: "Voice", content_quality: "Quality" }[k], sec[k]))
+                    .join("")}`
+                : `Score <b>${ev.overall}/100</b> ${scoreChip("SEO", ev.seo)}${scoreChip("AEO", ev.aeo)}${scoreChip("Voice", ev.brand_voice)}${scoreChip("Quality", ev.content_quality)}`;
+              return `<details class="sp-score"><summary>${head}</summary>
               ${ev.summary ? `<p>${esc(ev.summary)}</p>` : ""}
               ${ev.improvements?.length ? `<b>Could be even better:</b><ul>${ev.improvements.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
-              <p class="sp-note">AI estimate using the Blend360 rubric. Some checks (meta title, FAQ, word count) only apply to full articles, so a single section scores lower. A person still reviews everything.</p></details>`
+              <p class="sp-note">Scored by AI with the Blend360 SEO/AEO rubric, counting only the checks a page section can meet.
+              Full-article score (also counts meta title, word count, FAQ, cover image): ${ev.overall}/100. A person still reviews everything.</p></details>`;
+            })()
           : r.error && state.team
             ? `<div class="sp-score">${esc(r.error)} <button class="btn light sm" data-act="sugg-rescore" title="Score the existing copy again (doesn't rewrite it)">↻ Retry score</button></div>`
             : ""}

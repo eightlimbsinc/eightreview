@@ -471,3 +471,43 @@ export function reconcile(result) {
     rubric_criteria,
   };
 }
+
+// The rubric is written for full articles: meta title/description, 3+ H2s, word counts, FAQ, lists,
+// cover image and slug can't apply to one page section, so a perfect section still "fails" them.
+// The section score uses only the criteria a section can meet, scaled to 100 per category.
+// aeo_direct_answer only counts when the copy actually has a question heading.
+const SECTION_CRITERIA = {
+  seo: ["seo_kw_title", "seo_kw_intro", "seo_longtail"],
+  aeo: ["aeo_direct_answer", "aeo_audience"],
+  brand_voice: Object.keys(CRITERIA.brand_voice),
+  content_quality: Object.keys(CRITERIA.content_quality),
+};
+
+export function sectionScores(rubric, { hasQuestion }) {
+  const out = {};
+  for (const [cat, ids] of Object.entries(SECTION_CRITERIA)) {
+    let earned = 0;
+    let max = 0;
+    for (const id of ids) {
+      if (id === "aeo_direct_answer" && !hasQuestion) continue;
+      const c = rubric[id];
+      if (!c || c.assessed === false) continue;
+      earned += c.earned;
+      max += c.max;
+    }
+    out[cat] = max ? Math.round((100 * earned) / max) : null;
+  }
+  const vals = Object.values(out).filter((v) => v !== null);
+  out.overall = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+  return out;
+}
+
+// Criteria a section could have scored better on, for the one automatic revision pass.
+export function sectionGaps(rubric, { hasQuestion }) {
+  return Object.values(SECTION_CRITERIA)
+    .flat()
+    .filter((id) => !(id === "aeo_direct_answer" && !hasQuestion))
+    .map((id) => [id, rubric[id]])
+    .filter(([, c]) => c && c.assessed !== false && c.earned < c.max)
+    .map(([id, c]) => `${id} (${c.earned}/${c.max}): ${c.detail}`);
+}
