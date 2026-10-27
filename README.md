@@ -21,6 +21,7 @@ overlay, and serves it from this domain.
    | Variable | Required | What |
    |---|---|---|
    | `ANTHROPIC_API_KEY` | for ✨ SEO | Claude API key from console.anthropic.com |
+   | `STAGING_PASSWORD` | optional | Default Webflow staging password for projects that don't set their own. |
    | `ADMIN_TOKEN` | recommended | Any secret string. Required to create/edit/delete projects and pages from the dashboard (click **Admin token** on the dashboard to enter it). Clients never need it. |
 3. Deploy. Storage is Netlify Blobs — enabled automatically, nothing to set up.
 4. Open the site, create a project (e.g. "Blend360 website"), add the staging pages, and send the **Copy client link** URL.
@@ -56,4 +57,5 @@ Notes:
 - Sections are detected from `<section>` tags (Webflow's default). Add `data-review-section="name"` to any element to make it a reviewable section explicitly.
 - Review links are unguessable IDs, not passwords — anyone with the link can comment.
 - Links to pages that aren't in the project open the original staging site (outside the review).
+- **Password-protected staging:** set the Webflow site password on the project (dashboard → **Set staging password**). The server logs in through Webflow's password screen and caches the login cookie; the password is never sent to the browser.
 - Webflow staging sitemaps need **Site settings → SEO → Auto-generate sitemap** turned on; URLs are mapped onto the staging domain automatically.

@@ -64,6 +64,7 @@ async function renderProjects() {
         <label>Project name<input name="name" required placeholder="Blend360 website redesign"></label>
         <label>Client<input name="client" placeholder="Blend360"></label>
         <label>Default SEO keywords <small>(optional, used by the AI)</small><input name="keywords" placeholder="enterprise AI consulting, data science services"></label>
+        <label>Staging password <small>(if the Webflow staging site is password protected)</small><input name="password" type="password" autocomplete="off" placeholder="Webflow site password"></label>
       </div>
       <div class="row"><span class="sp"></span><button class="btn primary">Create project</button></div>
       <p class="err" hidden></p>
@@ -149,11 +150,12 @@ async function renderProject(id) {
 
   app.innerHTML = `<a class="back" href="#/">← Projects</a>
     <div class="row">
-      <div><h1>${esc(project.name)}</h1><div class="muted">${esc(project.client || "")}${project.keywords ? ` · Keywords: ${esc(project.keywords)}` : ""}</div></div>
+      <div><h1>${esc(project.name)}</h1><div class="muted">${esc(project.client || "")}${project.keywords ? ` · Keywords: ${esc(project.keywords)}` : ""} · ${project.hasPassword ? "🔒 Staging password saved" : "No staging password"}</div></div>
       <span class="sp"></span>
       <button class="btn primary sm" data-copy="${esc(portalLink(project))}">Copy client link</button>
       <a class="btn light sm" href="${esc(portalLink(project))}" target="_blank" rel="noopener">Preview as client</a>
       <button class="btn light sm" id="edit-kw">Edit keywords</button>
+      <button class="btn light sm" id="edit-pw">${project.hasPassword ? "Change" : "Set"} staging password</button>
       <button class="btn light sm" id="del" style="color:var(--red)">Delete</button>
     </div>
     <div class="card progress-card" style="margin-top:16px">
@@ -215,7 +217,7 @@ async function renderProject(id) {
     out.innerHTML = `<p class="muted">Reading sitemap…</p>`;
     try {
       const have = new Set(pages.map((p) => new URL(p.url).pathname.replace(/\/+$/, "")));
-      const { urls } = await api("/api/sitemap", { method: "POST", body: { url: e.target.url.value } });
+      const { urls } = await api("/api/sitemap", { method: "POST", body: { url: e.target.url.value, projectId: id } });
       const fresh = urls.filter((u) => !have.has(new URL(u).pathname.replace(/\/+$/, "")));
       if (!fresh.length) {
         out.innerHTML = `<p class="muted">Found ${urls.length} URLs; all are already in this project.</p>`;
@@ -267,6 +269,12 @@ async function renderProject(id) {
     const keywords = prompt("Default SEO keywords for this project (comma separated):", project.keywords || "");
     if (keywords === null) return;
     await api(`/api/projects/${id}`, { method: "PATCH", body: { keywords } });
+    renderProject(id);
+  };
+  $("#edit-pw").onclick = async () => {
+    const password = prompt("Webflow staging site password (leave empty to remove):", "");
+    if (password === null) return;
+    await api(`/api/projects/${id}`, { method: "PATCH", body: { password: password.trim() } });
     renderProject(id);
   };
   $("#del").onclick = async () => {
