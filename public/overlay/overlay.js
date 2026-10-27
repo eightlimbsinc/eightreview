@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-27.7"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-27.8"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === PAGE);
@@ -198,7 +198,7 @@
     <aside class="sidebar" hidden></aside>
     <div class="pages-panel" hidden></div>
     <div class="toolbar">
-      <span class="brand" title="EightReview v${VERSION}">8R</span>
+      <button class="brand" data-act="about" title="EightReview v${VERSION}">8R</button>
       ${SIBLINGS.length > 1 ? `<span class="pager">
         <button class="tb arrow" data-act="prev" title="Previous page" ${pageIndex <= 0 ? "disabled" : ""}>‹</button>
         <button class="tb pg" data-act="pages" title="All pages in this review"><span class="pg-name">${esc(CFG.name || "Page")}</span><span class="pg-n">${pageIndex + 1}/${SIBLINGS.length}</span></button>
@@ -766,6 +766,8 @@
         if (state.mode === "comment") toast("Click anywhere on the page to leave a comment");
         else hoverBox.style.display = "none";
         render();
+      } else if (act === "about") {
+        toast(`EightReview v${VERSION}${state.team ? " · Team mode" : ""} · Press C to comment`, 4000);
       } else if (act === "pages") {
         state.pagesOpen = !state.pagesOpen;
         renderPagesPanel();
@@ -1013,6 +1015,8 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 
 .toolbar { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); display: flex; align-items: center; gap: 4px;
   background: #1e1e1e; color: #fff; padding: 6px; border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.3); font-size: 13px; }
+.brand { border: 0; background: transparent; border-radius: 8px; padding-top: 6px; padding-bottom: 6px; }
+.brand:hover { background: #333; }
 .brand { font-weight: 800; padding: 0 10px 0 8px; letter-spacing: -.5px; color: #0d99ff; }
 .tb { display: flex; align-items: center; gap: 6px; background: transparent; color: #fff; border: 0; border-radius: 9px; padding: 8px 12px; }
 .tb:hover { background: #333; }
