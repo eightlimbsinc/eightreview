@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.7"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.8"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -958,13 +958,23 @@
       panel.hidden = true;
       $(".sugg-arrow").hidden = true;
       document.documentElement.style.removeProperty("margin-right");
+      document.documentElement.style.removeProperty("overflow-x");
       return;
     }
     const docked = innerWidth >= 900;
     panel.classList.toggle("sheet", !docked);
     // Make room so the panel never covers the page.
-    if (docked) document.documentElement.style.setProperty("margin-right", "400px", "important");
-    else document.documentElement.style.removeProperty("margin-right");
+    // Sites sized in vw can't shrink, so also stop sideways scrolling: the page stays aligned left
+    // and anything wider simply tucks under the panel.
+    const html = document.documentElement.style;
+    if (docked) {
+      html.setProperty("margin-right", "400px", "important");
+      html.setProperty("overflow-x", "hidden", "important");
+      if (scrollX) scrollTo({ left: 0, top: scrollY });
+    } else {
+      html.removeProperty("margin-right");
+      html.removeProperty("overflow-x");
+    }
     panel.hidden = false;
     $(".toolbar").classList.toggle("docked", docked);
 
@@ -1037,7 +1047,11 @@
     state.panelEdit = false;
     renderSuggestion();
     const sec = state.sections.find((x) => x.key === key);
-    (sec?.heading || sec?.el)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (sec) {
+      // Scroll vertically only; scrollIntoView would also scroll sideways on wide pages.
+      const r = rectOf(sec);
+      scrollTo({ left: 0, top: Math.max(0, r.top + scrollY - Math.max(80, (innerHeight - r.height) / 2)), behavior: "smooth" });
+    }
     setTimeout(() => {
       render();
       drawArrow();
