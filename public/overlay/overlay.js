@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.12"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.13"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -104,10 +104,21 @@
       .slice(0, 60);
   const cleanText = (el) => (el?.innerText || el?.textContent || "").replace(/\s+/g, " ").trim();
 
+  // Random per-browser id: lets people delete their own comments (and nobody else's).
+  const reviewerId = (() => {
+    try {
+      let id = localStorage.getItem("eightreview:rid");
+      if (!id) localStorage.setItem("eightreview:rid", (id = crypto.randomUUID()));
+      return id;
+    } catch {
+      return "";
+    }
+  })();
+
   async function api(path, opts = {}) {
     const res = await fetch(API + path, {
       ...opts,
-      headers: { "content-type": "application/json", "x-admin-token": adminToken(), ...(opts.headers || {}) },
+      headers: { "content-type": "application/json", "x-admin-token": adminToken(), "x-reviewer-id": reviewerId, ...(opts.headers || {}) },
       body: opts.body ? JSON.stringify(opts.body) : undefined,
     });
     const text = await res.text();
@@ -217,6 +228,31 @@
     return m.m33 < 0; // the face's normal points away from the viewer
   }
 
+  // The element that rotates a flip card: the nearest 3D container (transform-style: preserve-3d)
+  // around the hovered element, else the parent of its card face.
+  function flipRotator(el) {
+    for (let n = el, i = 0; n && n !== document.body && i < 10; n = n.parentElement, i++) {
+      if (getComputedStyle(n).transformStyle === "preserve-3d") return n;
+    }
+    return flipFace(el)?.parentElement || null;
+  }
+
+  function toggleFlip(rot) {
+    if (!rot) return;
+    if (rot.dataset.erFlipped === "1") {
+      rot.style.transform = rot.dataset.erOrig || "";
+      rot.dataset.erFlipped = "0";
+    } else {
+      const cur = getComputedStyle(rot).transform;
+      rot.dataset.erOrig = rot.style.transform || "";
+      rot.style.transition = "transform .5s";
+      rot.style.transform = `${cur && cur !== "none" ? `${cur} ` : ""}rotateY(180deg)`;
+      rot.dataset.erFlipped = "1";
+    }
+    if (state.flipTarget === rot) flipBtn.textContent = rot.dataset.erFlipped === "1" ? "↻ Flip back" : "↻ Flip card";
+    setTimeout(schedule, 600);
+  }
+
   function docPoint(el, xPct, yPct) {
     const r = el.getBoundingClientRect();
     if (!r.width && !r.height) return null; // hidden at this breakpoint
@@ -300,8 +336,10 @@
   host.style.cssText = "position:absolute;top:0;left:0;width:0;height:0;z-index:2147483000;";
   const ui = host.attachShadow({ mode: "open" });
   ui.innerHTML = `<style>${CSS_TEXT()}</style>
+    <div class="glass" hidden></div>
     <div class="layer">
       <div class="hover"></div>
+      <button class="flipbtn" data-act="flip" hidden title="Turn this card over">↻ Flip card</button>
       <div class="focus-box" hidden></div>
       <div class="group-outlines"></div>
       <div class="connector" hidden><svg><line/><circle r="4"/></svg></div>
@@ -343,6 +381,11 @@
 
   const layer = $(".layer");
   const hoverBox = $(".hover");
+  // While commenting or highlighting, a transparent sheet over the page takes the mouse, so hover
+  // effects (flipping cards, menus) don't fire under the cursor. Mouse/trackpad devices only.
+  const glass = $(".glass");
+  const flipBtn = $(".flipbtn");
+  const canHover = matchMedia("(hover: hover) and (pointer: fine)").matches;
   const focusBox = $(".focus-box");
   const connector = $(".connector");
   const pinsEl = $(".pins");
@@ -450,7 +493,8 @@
         if (away) {
           // Turned-away face of a flipping card: a small label instead of the full bar over the front.
           chip.classList.add("away");
-          chip.innerHTML = `<span class="lbl" title="${esc(s.label)}">↻ On the back of this card · flip it to review</span>
+          chip.innerHTML = `<span class="lbl" title="${esc(s.label)}">↻ On the back of this card</span>
+            <button data-act="flip-section" title="Turn the card over to review this">↻ Flip</button>
             ${state.team && flag ? `<button data-act="flag" class="flag-btn remove" title="Remove this highlight">✕</button>` : ""}`;
           chipsEl.appendChild(chip);
           continue;
@@ -490,6 +534,8 @@
     $('.toolbar [data-act="pages"]')?.classList.toggle("on", state.pagesOpen);
     if (reviewed && reviewed === targets.length && !state.nudged && load.done && !state.team) nudgeNext();
     document.documentElement.classList.toggle("eightreview-commenting", state.mode === "comment" || state.mode === "pick");
+    glass.hidden = !(canHover && (state.mode === "comment" || state.mode === "pick"));
+    if (glass.hidden) flipBtn.hidden = true;
   }
 
   const GAP = 32;
@@ -623,9 +669,10 @@
         <span>#${c.n}${c.sectionLabel ? ` · ${esc(c.sectionLabel)}` : ""}</span>
         <span class="sp"></span>
         <button class="icon" data-act="resolve" title="${c.resolved ? "Reopen" : "Resolve"}">${c.resolved ? "↺" : "✓"}</button>
+        ${c.mine || state.team ? `<button class="icon" data-act="delete-comment" title="${c.mine ? "Delete your comment" : "Delete this comment (team)"}">🗑</button>` : ""}
         <button class="icon" data-act="close" title="Close">✕</button>
       </div>
-      ${c._away ? `<div class="flip-note">↻ This comment is on the <b>other side</b> of this card. Flip the card (click it, its + button, or hover) to see what it's about.</div>` : ""}
+      ${c._away ? `<div class="flip-note">↻ This comment is on the <b>other side</b> of this card. <button class="btn light sm" data-act="flip-comment">↻ Flip it for me</button></div>` : ""}
       <div class="msg">${avatar(c.author)}<div><div class="who">${esc(c.author)} <time>${ago(c.createdAt)}</time></div>
         ${c.body ? `<div class="body">${esc(c.body)}</div>` : ""}${copyBlock(c.copy)}</div></div>
       ${c.replies
@@ -1354,6 +1401,23 @@
       } else if (act === "sugg-save") {
         const texts = [...$(".sugg").querySelectorAll(".sp-edit")].map((x) => x.value.trim());
         await submitSuggestion(texts, true);
+      } else if (act === "delete-comment") {
+        const c = state.comments.find((x) => x.id === state.openId);
+        if (!c || !confirm(`Delete comment #${c.n}${c.replies.length ? " and its replies" : ""}? This can't be undone.`)) return;
+        await api(`/api/comments/${c.id}?page=${PAGE}`, { method: "DELETE" });
+        state.comments = state.comments.filter((x) => x.id !== c.id);
+        state.openId = null;
+        popEl.innerHTML = "";
+        render();
+        toast("Comment deleted");
+      } else if (act === "flip") {
+        toggleFlip(state.flipTarget);
+      } else if (act === "flip-comment") {
+        const c = state.comments.find((x) => x.id === state.openId);
+        toggleFlip(flipRotator(c && resolveAnchor(c.anchor)));
+      } else if (act === "flip-section") {
+        const sec = state.sections.find((x) => x.key === t.closest(".chip").dataset.key);
+        toggleFlip(flipRotator(sec && (sec.members?.[0] || sec.el)));
       } else if (act === "about") {
         toast(`EightReview v${VERSION}${state.team ? " · Team mode" : ""} · Press C to comment`, 4000);
       } else if (act === "pages") {
@@ -1551,7 +1615,8 @@
   document.addEventListener(
     "pointerdown",
     (e) => {
-      if (state.mode === "pick" && e.button === 0 && !insideUI(e)) drag = { x: e.clientX, y: e.clientY, active: false, t: 0 };
+      const onPage = !insideUI(e) || e.composedPath()[0] === glass;
+      if (state.mode === "pick" && e.button === 0 && onPage) drag = { x: e.clientX, y: e.clientY, active: false, t: 0 };
     },
     true,
   );
@@ -1595,27 +1660,78 @@
     true,
   );
 
+  // The page element under a point, looking through the glass sheet.
+  function pageAt(x, y) {
+    glass.style.pointerEvents = "none";
+    const el = document.elementFromPoint(x, y);
+    glass.style.pointerEvents = "";
+    return el && el !== host && el !== document.documentElement && el !== document.body ? el : null;
+  }
+
+  function showFlipButton(el) {
+    const rot = el && flipRotator(el);
+    if (!rot) {
+      if (!flipBtn.matches(":hover")) flipBtn.hidden = true;
+      return;
+    }
+    state.flipTarget = rot;
+    const r = rot.getBoundingClientRect();
+    // Just above the card's top-left corner, so it never covers the card's own content or buttons.
+    Object.assign(flipBtn.style, { left: `${r.left + scrollX}px`, top: `${Math.max(scrollY + 4, r.top + scrollY - 36)}px` });
+    flipBtn.textContent = rot.dataset.erFlipped === "1" ? "↻ Flip back" : "↻ Flip card";
+    flipBtn.hidden = false;
+  }
+
+  let glassFrame = 0;
+  glass.addEventListener("pointermove", (e) => {
+    if (drag?.active) return;
+    const { clientX: x, clientY: y } = e;
+    cancelAnimationFrame(glassFrame);
+    glassFrame = requestAnimationFrame(() => {
+      const el = pageAt(x, y);
+      showHover(el);
+      showFlipButton(el);
+    });
+  });
+  glass.addEventListener("pointerleave", () => (hoverBox.style.display = "none"));
+  glass.addEventListener("click", (e) => {
+    const el = pageAt(e.clientX, e.clientY);
+    if (!el) return;
+    if (state.mode === "pick") {
+      if (dragJustEnded) return void (dragJustEnded = false);
+      return choosePick(el);
+    }
+    if (state.mode === "comment") {
+      hoverBox.style.display = "none";
+      startDraft(el, e.clientX, e.clientY);
+    }
+  });
+
   document.addEventListener(
     "mousemove",
     (e) => {
-      if ((state.mode !== "comment" && state.mode !== "pick") || state.draft || state.pick || drag?.active || insideUI(e)) {
-        hoverBox.style.display = "none";
-        return;
-      }
-      const el = document.elementFromPoint(e.clientX, e.clientY);
-      if (!el || el === state.hoverEl) return;
-      state.hoverEl = el;
-      const r = el.getBoundingClientRect();
-      Object.assign(hoverBox.style, {
-        display: "block",
-        left: `${r.left + scrollX}px`,
-        top: `${r.top + scrollY}px`,
-        width: `${r.width}px`,
-        height: `${r.height}px`,
-      });
+      if (insideUI(e)) return;
+      showHover(document.elementFromPoint(e.clientX, e.clientY));
     },
     true,
   );
+
+  function showHover(el) {
+    if ((state.mode !== "comment" && state.mode !== "pick") || state.draft || state.pick || drag?.active || !el) {
+      hoverBox.style.display = "none";
+      return;
+    }
+    if (el === state.hoverEl && hoverBox.style.display === "block") return;
+    state.hoverEl = el;
+    const r = el.getBoundingClientRect();
+    Object.assign(hoverBox.style, {
+      display: "block",
+      left: `${r.left + scrollX}px`,
+      top: `${r.top + scrollY}px`,
+      width: `${r.width}px`,
+      height: `${r.height}px`,
+    });
+  }
 
   document.addEventListener("keydown", (e) => {
     const typing = e.composedPath().some((n) => n.tagName === "INPUT" || n.tagName === "TEXTAREA" || n.isContentEditable);
@@ -1686,6 +1802,12 @@
 :host { all: initial; }
 * { box-sizing: border-box; font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
 .layer { position: absolute; top: 0; left: 0; }
+.glass { position: fixed; inset: 0; z-index: -1; cursor: crosshair; background: transparent; }
+.glass[hidden], .flipbtn[hidden] { display: none; }
+.flipbtn { position: absolute; z-index: 1; border: 0; border-radius: 999px; padding: 7px 12px; background: #1e1e1e; color: #fff;
+  font-size: 12px; font-weight: 700; box-shadow: 0 4px 14px rgba(0,0,0,.3); cursor: pointer; }
+.flipbtn:hover { background: #ffc700; color: #1e1e1e; }
+.flip-note .btn { margin-top: 6px; }
 .sp { flex: 1; }
 button { font: inherit; cursor: pointer; }
 svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }

@@ -7,7 +7,7 @@
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; max-width: 1100px; margin: 0 auto; }
   .card { perspective: 1200px; height: 320px; }
   .inner { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform .5s; }
-  .card.flipped .inner { transform: rotateY(180deg); }
+  .card.flipped .inner, .card.hover:hover .inner { transform: rotateY(180deg); }
   .face { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden; background: #a4f3f2; border-radius: 16px; padding: 24px; box-sizing: border-box; }
   .back { transform: rotateY(180deg); }
   .flip { position: absolute; top: 16px; right: 16px; width: 40px; height: 40px; border-radius: 50%; border: 0; background: #33454f; color: #fff; font-size: 22px; cursor: pointer; }
@@ -19,8 +19,8 @@
     <div class="face front"><h3>Innovation Teams</h3><p>Front of the card: a picture goes here.</p><button class="flip" onclick="this.closest('.card').classList.toggle('flipped')">+</button></div>
     <div class="face back"><p>You want to test AI ideas quickly, but IT blocks external tools.</p><b>Starting Point:</b><ul><li>Secure, governed sandbox</li><li>Department-specific templates</li></ul><button class="flip" onclick="this.closest('.card').classList.toggle('flipped')">×</button></div>
   </div></div>
-  <div class="card"><div class="inner">
-    <div class="face front"><h3>IT Leaders</h3><p>Front of card two.</p></div>
+  <div class="card hover" id="c2"><div class="inner">
+    <div class="face front"><h3>IT Leaders</h3><p>Front of card two (flips on hover).</p></div>
     <div class="face back"><p>Back of card two.</p></div>
   </div></div>
 </div></section>

@@ -2,10 +2,19 @@
 //   GET    /api/comments?page=ID         list for a page
 //   POST   /api/comments                 create { pageId, author, body, anchor, sectionKey, copy }
 //   PATCH  /api/comments/:id             { pageId, resolved?, reply?: {author, body}, body? }
-//   DELETE /api/comments/:id?page=ID
-import { store, listJSON, newId, json, error, readBody, clip, handle } from "./_lib/store.mjs";
+//   DELETE /api/comments/:id?page=ID    the comment's author (same browser) or the team
+// Each browser sends a random x-reviewer-id. It's stored privately on the comments it creates,
+// never returned; responses only say whether a comment is "mine".
+import { store, listJSON, newId, json, error, readBody, clip, handle, isAdmin } from "./_lib/store.mjs";
 
 const key = (pageId, id) => `comments/${pageId}/${id}`;
+const reviewerId = (req) => clip(req.headers.get("x-reviewer-id") || "", 64);
+
+function forViewer(comment, req) {
+  const { authorKey, ...rest } = comment;
+  const me = reviewerId(req);
+  return { ...rest, mine: Boolean(authorKey && me && authorKey === me) };
+}
 
 function cleanAnchor(a = {}) {
   const num = (v) => (Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0);
@@ -38,7 +47,7 @@ export default handle(async (req, context) => {
     if (!pageId) return error(400, "page is required");
     const comments = await listJSON(`comments/${pageId}/`);
     comments.sort((a, b) => a.n - b.n);
-    return json(comments);
+    return json(comments.map((c) => forViewer(c, req)));
   }
 
   const body = req.method === "DELETE" ? {} : await readBody(req);
@@ -64,10 +73,11 @@ export default handle(async (req, context) => {
       copy,
       resolved: false,
       replies: [],
+      authorKey: reviewerId(req),
       createdAt: new Date().toISOString(),
     };
     await s.setJSON(key(pageId, comment.id), comment);
-    return json(comment, 201);
+    return json(forViewer(comment, req), 201);
   }
 
   if (!id) return error(405, "Method not allowed");
@@ -88,10 +98,12 @@ export default handle(async (req, context) => {
     }
     comment.updatedAt = new Date().toISOString();
     await s.setJSON(key(pageId, id), comment);
-    return json(comment);
+    return json(forViewer(comment, req));
   }
 
   if (req.method === "DELETE") {
+    const own = comment.authorKey && comment.authorKey === reviewerId(req);
+    if (!own && !isAdmin(req)) return error(403, "You can only delete your own comments");
     await s.delete(key(pageId, id));
     return json({ ok: true });
   }

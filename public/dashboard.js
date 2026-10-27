@@ -382,6 +382,7 @@ async function renderDetail(id) {
           <span>${when(c.createdAt)}</span><span class="sp"></span>
           <a class="btn light sm" href="${location.origin}/r/${page.id}#comment-${c.id}" target="_blank" rel="noopener">View on page</a>
           <button class="btn light sm" data-resolve="${c.id}" data-val="${!c.resolved}">${c.resolved ? "Reopen" : "Resolve"}</button>
+          <button class="btn light sm" data-delcomment="${c.id}" data-n="${c.n}" style="color:var(--red)" title="Delete this comment">Delete</button>
         </div>
         ${c.anchor?.text ? `<div class="on-text">On: “${esc(c.anchor.text)}”</div>` : ""}
         ${c.body ? `<div class="c-body">${esc(c.body)}</div>` : ""}
@@ -402,6 +403,14 @@ async function renderDetail(id) {
     location.hash = back;
   };
   view.querySelectorAll("[data-filter]").forEach((b) => (b.onclick = () => ((filter = b.dataset.filter), renderDetail(id))));
+  view.querySelectorAll("[data-delcomment]").forEach(
+    (b) =>
+      (b.onclick = async () => {
+        if (!confirm(`Delete comment #${b.dataset.n}? This can't be undone.`)) return;
+        await api(`/api/comments/${b.dataset.delcomment}?page=${id}`, { method: "DELETE" });
+        renderDetail(id);
+      }),
+  );
   view.querySelectorAll("[data-resolve]").forEach(
     (b) =>
       (b.onclick = async () => {
