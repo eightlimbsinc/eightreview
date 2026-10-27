@@ -1,12 +1,13 @@
 // Recommended SEO/AEO copy for a highlighted section, written then scored, in the background.
 //   POST /.netlify/functions/recommend-background
 //        { pageId, sectionKey, label, items: [{ tag, text }] }   (team only)
+//        { pageId, sectionKey, scoreOnly: true }                  re-score the existing copy
 // Netlify answers 202 straight away (background function, up to 15 min). Progress is written
 // to flags/<pageId>[sectionKey].recommendation, which the overlay polls:
 //   status "writing" -> "scoring" (copy ready) -> "ready" (scores ready) | "error"
 import Anthropic from "@anthropic-ai/sdk";
 import { store, readBody, isAdmin, clip, handle, json } from "./_lib/store.mjs";
-import { RUBRIC_PROMPT, RUBRIC_SCHEMA, reconcile } from "./_lib/rubric.mjs";
+import { RUBRIC_PROMPT, RUBRIC_SCHEMA, RUBRIC_OUTPUT_NOTE, reconcile } from "./_lib/rubric.mjs";
 
 const MODEL = "claude-opus-5-5";
 
@@ -87,13 +88,15 @@ export default handle(async (req) => {
   const body = await readBody(req);
   const pageId = clip(body.pageId, 40);
   const key = clip(body.sectionKey, 120);
+  const scoreOnly = Boolean(body.scoreOnly);
   const items = (Array.isArray(body.items) ? body.items : []).slice(0, 30).map((it) => ({
     tag: TAGS.has(String(it.tag).toLowerCase()) ? String(it.tag).toLowerCase() : "p",
     original: clip(it.text, 800),
   }));
   const s = store();
   const page = await s.get(`pages/${pageId}`);
-  if (!page || !items.length) return json({ error: "Nothing to write" }, 400);
+  const existing = scoreOnly ? ((await s.get(`flags/${pageId}`)) || {})[key]?.recommendation : null;
+  if (!page || (scoreOnly ? !existing?.items?.length : !items.length)) return json({ error: "Nothing to write" }, 400);
   const project = page.projectId ? await s.get(`projects/${page.projectId}`) : null;
   const keywords = page.keywords || project?.keywords || "";
 
@@ -101,36 +104,44 @@ export default handle(async (req) => {
     await update(pageId, key, { status: "error", error: "ANTHROPIC_API_KEY is not set on the server" });
     return json({ ok: false });
   }
-  await update(pageId, key, { status: "writing", error: "", items: [], evaluation: null });
+  await update(pageId, key, scoreOnly ? { status: "scoring", error: "", evaluation: null } : { status: "writing", error: "", items: [], evaluation: null });
 
   try {
-    // 1) Write the recommended copy.
-    const brief = [
-      `Page: ${page.name}${project?.client ? ` (client: ${project.client})` : ""}`,
-      `URL: ${page.url}`,
-      `Target keywords from the team: ${keywords || "none given; choose them from the page topic"}`,
-      `Section: ${clip(body.label, 200) || "unnamed"}`,
-      `Team note: ${clip(body.note, 300) || "none"}`,
-      `Current copy, one element per line as [index] <tag> text:`,
-      ...items.map((it, i) => `[${i}] <${it.tag}> ${it.original}`),
-    ].join("\n");
-    const written = await ask(WRITER, brief, WRITER_SCHEMA);
-    const byIndex = new Map((written.items || []).map((x) => [x.index, x.recommended]));
-    const out = items.map((it, i) => ({ ...it, recommended: clip(byIndex.get(i) ?? it.original, 1200) }));
-    const all = out.map((x) => x.recommended.toLowerCase()).join(" \n ");
-    // Only keep phrases that really appear, so every highlight is real.
-    const used = (list) => [...new Set((list || []).map((k) => String(k).trim()).filter((k) => k && all.includes(k.toLowerCase())))].slice(0, 8);
-    const seo = used(written.seo_keywords);
-    const longtail = used(written.aeo_longtail);
-    if (!(await update(pageId, key, { status: "scoring", items: out, primary_keyword: clip(written.primary_keyword, 120), seo_keywords: seo, aeo_longtail: longtail, rationale: clip(written.rationale, 600) }))) {
-      return json({ ok: false });
+    let out, longtail, primary;
+    if (scoreOnly) {
+      out = existing.items;
+      longtail = existing.aeo_longtail || [];
+      primary = existing.primary_keyword || "";
+    } else {
+      // 1) Write the recommended copy.
+      const brief = [
+        `Page: ${page.name}${project?.client ? ` (client: ${project.client})` : ""}`,
+        `URL: ${page.url}`,
+        `Target keywords from the team: ${keywords || "none given; choose them from the page topic"}`,
+        `Section: ${clip(body.label, 200) || "unnamed"}`,
+        `Team note: ${clip(body.note, 300) || "none"}`,
+        `Current copy, one element per line as [index] <tag> text:`,
+        ...items.map((it, i) => `[${i}] <${it.tag}> ${it.original}`),
+      ].join("\n");
+      const written = await ask(WRITER, brief, WRITER_SCHEMA);
+      const byIndex = new Map((written.items || []).map((x) => [x.index, x.recommended]));
+      out = items.map((it, i) => ({ ...it, recommended: clip(byIndex.get(i) ?? it.original, 1200) }));
+      const all = out.map((x) => x.recommended.toLowerCase()).join(" \n ");
+      // Only keep phrases that really appear, so every highlight is real.
+      const used = (list) => [...new Set((list || []).map((k) => String(k).trim()).filter((k) => k && all.includes(k.toLowerCase())))].slice(0, 8);
+      const seo = used(written.seo_keywords);
+      longtail = used(written.aeo_longtail);
+      primary = written.primary_keyword || "";
+      if (!(await update(pageId, key, { status: "scoring", items: out, primary_keyword: clip(written.primary_keyword, 120), seo_keywords: seo, aeo_longtail: longtail, rationale: clip(written.rationale, 600) }))) {
+        return json({ ok: false });
+      }
     }
 
     // 2) Score it with the Blend360 rubric, as an independent evaluator.
     const article = [
       `Content type: Web page section (not a full article). Criteria that need article-only inputs below may be unavailable.`,
       `Section title: ${clip(body.label, 200)}`,
-      `Primary keyword: ${written.primary_keyword || "not specified"}`,
+      `Primary keyword: ${primary || "not specified"}`,
       `Recommended long-tail keywords: ${longtail.join("; ") || "none"}`,
       `Target audience: enterprise decision-makers evaluating Blend360 (not otherwise specified)`,
       `Meta title: not provided`,
@@ -141,7 +152,7 @@ export default handle(async (req) => {
       `ARTICLE (HTML):`,
       asHtml(out, "recommended"),
     ].join("\n");
-    const evaluation = reconcile(await ask(RUBRIC_PROMPT, article, RUBRIC_SCHEMA));
+    const evaluation = reconcile(await ask(RUBRIC_PROMPT, `${article}\n\n${RUBRIC_OUTPUT_NOTE}`, RUBRIC_SCHEMA));
     await update(pageId, key, {
       status: "ready",
       evaluation: {
@@ -158,8 +169,12 @@ export default handle(async (req) => {
     });
   } catch (e) {
     console.error("[recommend]", e);
+    // Keep the API's own reason (e.g. "Schema is too complex…") so the team can see what went wrong.
+    const apiReason = e?.error?.error?.message || e?.error?.message;
     const message =
-      e instanceof Anthropic.APIError ? `AI request failed (${e.status ?? "network"})` : e?.message || "Something went wrong";
+      e instanceof Anthropic.APIError
+        ? `AI request failed (${e.status ?? "network"}${apiReason ? `: ${String(apiReason).slice(0, 200)}` : ""})`
+        : e?.message || "Something went wrong";
     const flags = (await s.get(`flags/${pageId}`)) || {};
     const done = flags[key]?.recommendation?.items?.length;
     // If the copy was written but scoring failed, keep the copy and just skip the score.

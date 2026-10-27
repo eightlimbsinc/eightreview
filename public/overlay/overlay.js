@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.6"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.7"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -861,6 +861,18 @@
     return items;
   }
 
+  async function rescoreSuggestion(key) {
+    state.flags[key].recommendation = { ...state.flags[key].recommendation, status: "scoring", error: "" };
+    renderSuggestion();
+    const res = await fetch(`${API}/.netlify/functions/recommend-background`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-admin-token": adminToken() },
+      body: JSON.stringify({ pageId: PAGE, sectionKey: key, scoreOnly: true }),
+    });
+    if (res.status === 401) return toast("Sign in on the dashboard to score copy");
+    pollSuggestions();
+  }
+
   async function requestSuggestion(key) {
     const sec = state.sections.find((x) => x.key === key);
     if (!sec) return toast("Couldn't find that section on the page");
@@ -991,7 +1003,9 @@
               ${ev.summary ? `<p>${esc(ev.summary)}</p>` : ""}
               ${ev.improvements?.length ? `<b>Could be even better:</b><ul>${ev.improvements.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
               <p class="sp-note">AI estimate using the Blend360 rubric. Some checks (meta title, FAQ, word count) only apply to full articles, so a single section scores lower. A person still reviews everything.</p></details>`
-          : r.error ? `<div class="sp-score">${esc(r.error)}</div>` : ""}
+          : r.error && state.team
+            ? `<div class="sp-score">${esc(r.error)} <button class="btn light sm" data-act="sugg-rescore" title="Score the existing copy again (doesn't rewrite it)">↻ Retry score</button></div>`
+            : ""}
       <div class="sp-actions">${editing
         ? `<button class="btn primary" data-act="sugg-save">Save my version</button><button class="btn light" data-act="sugg-cancel">Cancel</button>`
         : `<button class="btn primary green" data-act="sugg-use">✓ Use this copy</button><button class="btn light" data-act="sugg-edit">✎ Change it</button>`}
@@ -1265,6 +1279,8 @@
         const key = t.closest(".chip").dataset.key;
         if (state.panel === key) closeSuggestion();
         else openSuggestion(key);
+      } else if (act === "sugg-rescore") {
+        await rescoreSuggestion(state.panel);
       } else if (act === "sugg-close") {
         closeSuggestion();
       } else if (act === "sugg-edit") {

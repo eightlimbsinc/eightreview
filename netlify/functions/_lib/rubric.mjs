@@ -403,85 +403,71 @@ export const CRITERIA = {
   content_quality: { q_structure: 25, q_depth: 25, q_evidence: 25, q_mechanics: 25 },
 };
 
-const criterion = {
+const allIds = Object.values(CRITERIA).flatMap((c) => Object.keys(c));
+
+// Kept deliberately flat: a schema with 24 nested criterion objects plus per-category arrays is
+// rejected by structured outputs as "too complex for compilation". The model returns one list of
+// criteria; the server rebuilds the rubric's sections (seo, aeo, …, rubric_criteria) and its scores.
+export const RUBRIC_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["assessed", "earned", "max", "detail", "evidence"],
+  required: ["criteria", "editorial_status", "summary", "priority_improvements", "human_review_notes"],
   properties: {
-    assessed: { type: "boolean" },
-    earned: { type: "integer" },
-    max: { type: "integer" },
-    detail: { type: "string" },
-    evidence: { type: "string" },
-  },
-};
-const category = {
-  type: "object",
-  additionalProperties: false,
-  required: ["score", "criteria"],
-  properties: {
-    score: { type: "integer" },
     criteria: {
       type: "array",
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["id", "earned", "max", "detail"],
-        properties: { id: { type: "string" }, earned: { type: "integer" }, max: { type: "integer" }, detail: { type: "string" } },
+        required: ["id", "assessed", "earned", "detail", "evidence"],
+        properties: {
+          id: { type: "string", enum: allIds },
+          assessed: { type: "boolean" },
+          earned: { type: "integer" },
+          detail: { type: "string" },
+          evidence: { type: "string" },
+        },
       },
     },
-  },
-};
-const allIds = Object.values(CRITERIA).flatMap((c) => Object.keys(c));
-
-export const RUBRIC_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["seo", "aeo", "brand_voice", "content_quality", "overall_assessment", "rubric_criteria"],
-  properties: {
-    seo: category,
-    aeo: category,
-    brand_voice: category,
-    content_quality: category,
-    overall_assessment: {
-      type: "object",
-      additionalProperties: false,
-      required: ["overall_score", "editorial_status", "summary", "priority_improvements", "human_review_required", "human_review_notes"],
-      properties: {
-        overall_score: { type: "integer" },
-        editorial_status: { type: "string" },
-        summary: { type: "string" },
-        priority_improvements: { type: "array", items: { type: "string" } },
-        human_review_required: { type: "boolean" },
-        human_review_notes: { type: "string" },
-      },
-    },
-    rubric_criteria: {
-      type: "object",
-      additionalProperties: false,
-      required: ["rubric_version", ...allIds],
-      properties: { rubric_version: { type: "string" }, ...Object.fromEntries(allIds.map((id) => [id, criterion])) },
-    },
+    editorial_status: { type: "string" },
+    summary: { type: "string" },
+    priority_improvements: { type: "array", items: { type: "string" } },
+    human_review_notes: { type: "string" },
   },
 };
 
-// The rubric says category scores must reconcile with the criteria; enforce that rather than trust it.
+// Appended to the request so the model knows how the configured schema maps onto the rubric's sections.
+export const RUBRIC_OUTPUT_NOTE = `Output format for this request: return every rubric criterion (${allIds.length} ids: ${allIds.join(", ")})
+as one entry in "criteria" with its exact id; the system groups them into the seo, aeo, brand_voice,
+content_quality, overall_assessment and rubric_criteria sections and computes the category and overall scores from your earned values.`;
+
+// Rebuild the rubric's sections from the flat list, enforcing maxima and the score arithmetic.
 export function reconcile(result) {
-  const rc = result.rubric_criteria || {};
-  const scores = {};
+  const byId = new Map((result.criteria || []).map((c) => [c.id, c]));
+  const rubric_criteria = { rubric_version: "1" };
+  const out = {};
   for (const [cat, crit] of Object.entries(CRITERIA)) {
     let sum = 0;
+    const list = [];
     for (const [id, max] of Object.entries(crit)) {
-      const c = rc[id] || {};
+      const c = byId.get(id) || { assessed: false, earned: 0, detail: "Not returned by the evaluator", evidence: "" };
       const earned = c.assessed === false ? 0 : Math.max(0, Math.min(max, Math.round(Number(c.earned) || 0)));
-      rc[id] = { ...c, earned, max };
+      rubric_criteria[id] = { assessed: Boolean(c.assessed), earned, max, detail: c.detail || "", evidence: c.evidence || "" };
+      list.push({ id, earned, max, detail: c.detail || "" });
       sum += earned;
     }
-    scores[cat] = Math.min(100, sum);
-    if (result[cat]) result[cat].score = scores[cat];
+    out[cat] = { score: Math.min(100, sum), criteria: list };
   }
-  const overall = Math.round((scores.seo + scores.aeo + scores.brand_voice + scores.content_quality) / 4);
-  result.overall_assessment = { ...result.overall_assessment, overall_score: overall, human_review_required: true };
-  rc.rubric_version = "1";
-  return result;
+  const overall = Math.round((out.seo.score + out.aeo.score + out.brand_voice.score + out.content_quality.score) / 4);
+  return {
+    ...out,
+    overall_assessment: {
+      overall_score: overall,
+      editorial_status: result.editorial_status || "",
+      summary: result.summary || "",
+      priority_improvements: result.priority_improvements || [],
+      human_review_required: true,
+      human_review_notes: result.human_review_notes || "",
+    },
+    rubric_criteria,
+  };
 }
