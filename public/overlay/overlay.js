@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.2"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.3"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === PAGE);
@@ -223,10 +223,39 @@
       .concat(customAreas());
   }
 
+  const anchorOf = (el) => ({ selector: selectorFor(el), text: cleanText(el).slice(0, 120), tag: el.tagName.toLowerCase() });
+  const commonAncestor = (els) => {
+    let a = els[0].parentElement || els[0];
+    while (a && !els.every((e) => a.contains(e))) a = a.parentElement;
+    return a || document.body;
+  };
+  function unionRect(els) {
+    let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+    for (const e of els) {
+      const x = e.getBoundingClientRect();
+      if (!x.width && !x.height) continue;
+      l = Math.min(l, x.left);
+      t = Math.min(t, x.top);
+      r = Math.max(r, x.right);
+      b = Math.max(b, x.bottom);
+    }
+    if (l === Infinity) return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 };
+    return { left: l, top: t, right: r, bottom: b, width: r - l, height: b - t };
+  }
+  const rectOf = (s) => (s.members ? unionRect(s.members) : s.el.getBoundingClientRect());
+
   // Areas the team picked by hand (any block on the page), stored with the flag.
   function customAreas() {
     const out = [];
     for (const [key, f] of Object.entries(state.flags)) {
+      if (f.members?.length) {
+        // A dragged group of cards: the highlight wraps whatever those cards are at this screen size.
+        const members = f.members.map(resolveAnchor).filter(Boolean);
+        if (members.length) {
+          out.push({ el: commonAncestor(members), members, key, label: f.label || "Highlighted cards", heading: null, custom: true });
+        }
+        continue;
+      }
       if (!f.anchor) continue;
       const el = resolveAnchor(f.anchor);
       if (el) out.push({ el, key, label: f.label || "Highlighted area", heading: el.querySelector("h1, h2, h3, h4"), custom: true });
@@ -236,7 +265,9 @@
 
   // Innermost area containing the element, so comments inside a hand-picked area belong to it.
   const sectionOf = (el) => {
-    const hits = state.sections.filter((s) => s.el.contains(el));
+    const group = state.sections.find((s) => s.members?.some((m) => m.contains(el)));
+    if (group) return group;
+    const hits = state.sections.filter((s) => !s.members && s.el.contains(el));
     return hits.find((s) => !hits.some((o) => o !== s && s.el.contains(o.el))) || hits[0];
   };
 
@@ -249,6 +280,7 @@
     <div class="layer">
       <div class="hover"></div>
       <div class="focus-box" hidden></div>
+      <div class="group-outlines"></div>
       <div class="connector" hidden><svg><line/><circle r="4"/></svg></div>
       <div class="hls"></div>
       <div class="chips"></div>
@@ -280,6 +312,7 @@
       <span class="team-pill" hidden title="You're in team mode: flag the sections the client should review">Team</span>
     </div>
     <div class="pickbar" hidden></div>
+    <div class="band" hidden></div>
     <div class="toast" hidden></div>
     <div class="modal" hidden></div>`;
 
@@ -357,7 +390,7 @@
     if (state.showSections) {
       const focus = hasFlags();
       for (const s of state.sections) {
-        const r = s.el.getBoundingClientRect();
+        const r = rectOf(s);
         if (!r.height) continue;
         const flag = state.flags[s.key];
         // Once the team flags sections, the client only sees those.
@@ -691,8 +724,37 @@
   const pickbar = $(".pickbar");
 
   function choosePick(el) {
-    state.pick = { el, history: [] };
+    state.pick = { el, members: null, history: [] };
     renderPick();
+  }
+
+  function chooseGroup(members) {
+    if (members.length === 1) return choosePick(members[0]);
+    state.pick = { el: commonAncestor(members), members, history: [] };
+    renderPick();
+  }
+
+  // Everything fully inside the dragged box, keeping only the outermost elements (the cards).
+  function elementsInBand(band) {
+    const inside = new Set();
+    for (const e of document.body.querySelectorAll("*")) {
+      if (e === host || SKIP.has(e.tagName) || e.classList.contains("er-blank")) continue;
+      const r = e.getBoundingClientRect();
+      if (r.width < 8 || r.height < 8) continue;
+      if (r.left >= band.left - 4 && r.right <= band.right + 4 && r.top >= band.top - 4 && r.bottom <= band.bottom + 4) inside.add(e);
+    }
+    return [...inside].filter((e) => !inside.has(e.parentElement)).slice(0, 40);
+  }
+
+  const bandEl = $(".band");
+  const groupEl = $(".group-outlines");
+  function outlineGroup(els) {
+    groupEl.innerHTML = (els || [])
+      .map((e) => {
+        const r = e.getBoundingClientRect();
+        return `<div style="left:${r.left + scrollX}px;top:${r.top + scrollY}px;width:${r.width}px;height:${r.height}px"></div>`;
+      })
+      .join("");
   }
 
   function renderPick() {
@@ -702,7 +764,8 @@
       if (!state.draft && !state.openId) hideFocus();
       return;
     }
-    const r = p.el.getBoundingClientRect();
+    const r = p.members ? unionRect(p.members) : p.el.getBoundingClientRect();
+    outlineGroup(p.members);
     Object.assign(focusBox.style, {
       left: `${r.left + scrollX}px`,
       top: `${r.top + scrollY}px`,
@@ -711,11 +774,11 @@
     });
     focusBox.hidden = false;
     focusBox.classList.add("pick");
-    const text = cleanText(p.el);
+    const text = p.members ? `${p.members.length} items selected` : cleanText(p.el);
     const keepNote = pickbar.querySelector("input")?.value;
     pickbar.hidden = false;
     pickbar.innerHTML = `<div class="pb-row"><b>Highlight this area?</b>
-        <span class="pb-what">${esc(p.el.tagName.toLowerCase())} · ${Math.round(r.width)}×${Math.round(r.height)} · “${esc(text.slice(0, 50))}${text.length > 50 ? "…" : ""}”</span></div>
+        <span class="pb-what">${p.members ? `${p.members.length} cards · ` : `${esc(p.el.tagName.toLowerCase())} · `}${Math.round(r.width)}×${Math.round(r.height)} · “${esc(text.slice(0, 50))}${text.length > 50 ? "…" : ""}”</span></div>
       <div class="pb-row">
         <button class="btn light sm" data-act="pick-bigger" title="Select the surrounding block">⬆ Bigger</button>
         <button class="btn light sm" data-act="pick-smaller" ${p.history.length ? "" : "disabled"} title="Go back to the smaller block">⬇ Smaller</button>
@@ -729,14 +792,16 @@
     state.pick = null;
     state.mode = "browse";
     focusBox.classList.remove("pick");
+    outlineGroup(null);
     renderPick();
     render();
   }
 
   async function savePick() {
-    const el = state.pick.el;
+    const { el, members } = state.pick;
     const heading = el.matches("h1, h2, h3, h4") ? el : el.querySelector("h1, h2, h3, h4");
-    const label = (cleanText(heading) || cleanText(el)).slice(0, 60) || "Highlighted area";
+    const base = (cleanText(heading) || cleanText(members?.[0] || el)).slice(0, 50) || "Highlighted area";
+    const label = members ? `${members.length} cards · ${base}` : base;
     const key = `area-${Math.random().toString(36).slice(2, 10)}`;
     const note = pickbar.querySelector("input").value.trim();
     const res = await api("/api/flags", {
@@ -747,7 +812,8 @@
         label,
         note,
         flagged: true,
-        anchor: { selector: selectorFor(el), text: cleanText(el).slice(0, 120), tag: el.tagName.toLowerCase() },
+        anchor: anchorOf(el),
+        members: members ? members.map(anchorOf) : undefined,
       },
     });
     state.flags = res.flags;
@@ -920,16 +986,20 @@
         state.openId = null;
         popEl.innerHTML = "";
         render();
-        toast("Click any block on the page to highlight it for review");
+        toast("Click a block to highlight it, or drag a box around several cards");
       } else if (act === "pick-bigger") {
-        const parent = state.pick.el.parentElement;
-        if (parent && parent !== document.body && parent !== document.documentElement) {
-          state.pick.history.push(state.pick.el);
-          state.pick.el = parent;
+        const p = state.pick;
+        // A group grows into the block that contains all its cards; a block grows into its parent.
+        const next = p.members ? p.el : p.el.parentElement;
+        if (next && next !== document.body && next !== document.documentElement) {
+          p.history.push({ el: p.el, members: p.members });
+          p.el = next;
+          p.members = null;
           renderPick();
         }
       } else if (act === "pick-smaller") {
-        if (state.pick.history.length) state.pick.el = state.pick.history.pop();
+        const p = state.pick;
+        if (p.history.length) Object.assign(p, p.history.pop());
         renderPick();
       } else if (act === "pick-cancel") {
         endPick();
@@ -1066,6 +1136,7 @@
       if (state.mode === "pick") {
         e.preventDefault();
         e.stopPropagation();
+        if (dragJustEnded) return void (dragJustEnded = false);
         const el = document.elementFromPoint(e.clientX, e.clientY);
         if (el && el !== document.documentElement && el !== document.body) choosePick(el);
         return;
@@ -1107,10 +1178,67 @@
     true,
   );
 
+  // Highlight area: drag a box around several cards to highlight them as one group.
+  let drag = null;
+  let dragJustEnded = false;
+  const bandRect = (d, e) => ({
+    left: Math.min(d.x, e.clientX),
+    top: Math.min(d.y, e.clientY),
+    right: Math.max(d.x, e.clientX),
+    bottom: Math.max(d.y, e.clientY),
+  });
+  // Pointer events: preventDefault on pointerdown (see block above) suppresses the mouse* ones.
+  document.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (state.mode === "pick" && e.button === 0 && !insideUI(e)) drag = { x: e.clientX, y: e.clientY, active: false, t: 0 };
+    },
+    true,
+  );
+  document.addEventListener(
+    "pointermove",
+    (e) => {
+      if (!drag) return;
+      if (!drag.active && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 8) return;
+      drag.active = true;
+      hoverBox.style.display = "none";
+      const b = bandRect(drag, e);
+      Object.assign(bandEl.style, { left: `${b.left}px`, top: `${b.top}px`, width: `${b.right - b.left}px`, height: `${b.bottom - b.top}px` });
+      bandEl.hidden = false;
+      const now = Date.now();
+      if (now - drag.t > 150) {
+        drag.t = now;
+        const els = elementsInBand(b);
+        outlineGroup(els);
+        bandEl.dataset.count = els.length ? `${els.length} selected` : "";
+      }
+    },
+    true,
+  );
+  document.addEventListener(
+    "pointerup",
+    (e) => {
+      if (!drag) return;
+      const d = drag;
+      drag = null;
+      bandEl.hidden = true;
+      if (!d.active) return;
+      dragJustEnded = true;
+      setTimeout(() => (dragJustEnded = false), 400);
+      const members = elementsInBand(bandRect(d, e));
+      if (!members.length) {
+        outlineGroup(null);
+        return toast("Drag the box all the way around the cards you want to group");
+      }
+      chooseGroup(members);
+    },
+    true,
+  );
+
   document.addEventListener(
     "mousemove",
     (e) => {
-      if ((state.mode !== "comment" && state.mode !== "pick") || state.draft || state.pick || insideUI(e)) {
+      if ((state.mode !== "comment" && state.mode !== "pick") || state.draft || state.pick || drag?.active || insideUI(e)) {
         hoverBox.style.display = "none";
         return;
       }
@@ -1269,6 +1397,12 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .chip button.flag-btn.remove:hover { background: #f24822; color: #fff; }
 .hover.pick { outline-color: #ffc700; background: rgba(255,199,0,.08); }
 .focus-box.pick { outline: 3px solid #ffc700; background: rgba(255,199,0,.1); }
+.band { position: fixed; border: 2px dashed #ffc700; background: rgba(255,199,0,.1); border-radius: 4px; pointer-events: none; }
+.band[hidden] { display: none; }
+.band::after { content: attr(data-count); position: absolute; left: 0; top: -24px; background: #ffc700; color: #1e1e1e; font-size: 11px;
+  font-weight: 700; padding: 2px 8px; border-radius: 5px; white-space: nowrap; }
+.band[data-count=""]::after { display: none; }
+.group-outlines > div { position: absolute; outline: 2px solid #ffc700; outline-offset: 1px; border-radius: 4px; pointer-events: none; background: rgba(255,199,0,.08); }
 .pickbar { position: fixed; left: 50%; bottom: 76px; transform: translateX(-50%); width: min(760px, calc(100vw - 24px)); background: #fff; color: #1e1e1e;
   border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.3); padding: 10px 12px; font-size: 13px; display: grid; gap: 8px; }
 .pickbar[hidden] { display: none; }
