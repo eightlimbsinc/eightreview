@@ -1,6 +1,7 @@
 // Sections the team has flagged for client review ("needs your review", "updated copy").
 //   GET  /api/flags?page=ID   -> { flags: { [sectionKey]: { label, note, at } }, admin }
-//   POST /api/flags           { pageId, sectionKey, label, note, flagged }   (admin)
+//   POST /api/flags           { pageId, sectionKey, label, note, flagged, anchor? }   (admin)
+//   (anchor = { selector, text, tag } for areas the team picked by hand rather than detected sections)
 // Re-flagging a section clears the client's earlier verdict so it goes back to "waiting".
 import { store, json, error, readBody, isAdmin, clip, handle } from "./_lib/store.mjs";
 
@@ -21,7 +22,15 @@ export default handle(async (req) => {
 
   const flags = (await s.get(`flags/${body.pageId}`)) || {};
   if (body.flagged) {
-    flags[sectionKey] = { label: clip(body.label, 200), note: clip(body.note, 300), at: new Date().toISOString() };
+    const prev = flags[sectionKey];
+    flags[sectionKey] = {
+      label: clip(body.label, 200) || prev?.label || "",
+      note: body.note !== undefined ? clip(body.note, 300) : prev?.note || "",
+      at: new Date().toISOString(),
+    };
+    // Hand-picked areas carry an anchor (like comments) so the overlay can find the element again.
+    const a = body.anchor || prev?.anchor;
+    if (a) flags[sectionKey].anchor = { selector: clip(a.selector, 1000), text: clip(a.text, 300), tag: clip(a.tag, 20) };
     const status = (await s.get(`status/${body.pageId}`)) || {};
     if (status[sectionKey]) {
       delete status[sectionKey];

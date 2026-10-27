@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-27.8"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-27.9"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === PAGE);
@@ -37,7 +37,8 @@
     comments: [],
     statuses: {},
     sections: [],
-    mode: "browse", // "browse" | "comment"
+    mode: "browse", // "browse" | "comment" | "pick" (team: choose an area to highlight)
+    pick: null, // { el, history: [] } while choosing an area
     showResolved: false,
     showSections: true,
     sidebar: false,
@@ -176,9 +177,26 @@
         while (used.has(key)) key += "-2";
         used.add(key);
         return { el, key, label, heading };
-      });
+      })
+      .concat(customAreas());
   }
-  const sectionOf = (el) => state.sections.find((s) => s.el.contains(el));
+
+  // Areas the team picked by hand (any block on the page), stored with the flag.
+  function customAreas() {
+    const out = [];
+    for (const [key, f] of Object.entries(state.flags)) {
+      if (!f.anchor) continue;
+      const el = resolveAnchor(f.anchor);
+      if (el) out.push({ el, key, label: f.label || "Highlighted area", heading: el.querySelector("h1, h2, h3, h4"), custom: true });
+    }
+    return out;
+  }
+
+  // Innermost area containing the element, so comments inside a hand-picked area belong to it.
+  const sectionOf = (el) => {
+    const hits = state.sections.filter((s) => s.el.contains(el));
+    return hits.find((s) => !hits.some((o) => o !== s && s.el.contains(o.el))) || hits[0];
+  };
 
   // ---------- shadow UI ----------
   const host = document.createElement("div");
@@ -210,12 +228,16 @@
       <button class="tb" data-act="sections" title="Show section approvals">
         <svg viewBox="0 0 24 24"><path d="M5 12l4 4L19 6"/></svg><span>Sections</span>
       </button>
+      <button class="tb pick-btn" data-act="pick" title="Team: pick any block on the page to highlight for review" hidden>
+        <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" stroke-dasharray="3 3"/></svg><span>Highlight area</span>
+      </button>
       <button class="tb" data-act="sidebar" title="All comments">
         <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span class="count">0</span>
       </button>
       <span class="progress" title="Sections reviewed"></span>
       <span class="team-pill" hidden title="You're in team mode: flag the sections the client should review">Team</span>
     </div>
+    <div class="pickbar" hidden></div>
     <div class="toast" hidden></div>
     <div class="modal" hidden></div>`;
 
@@ -317,11 +339,13 @@
 
         const chip = document.createElement("div");
         chip.className = `chip ${st || ""}${flag ? " flagged" : ""}`;
-        chip.style.top = `${r.top + scrollY + 12}px`;
-        chip.style.left = `${Math.max(12, r.right + scrollX - 12)}px`;
+        // Flagged: sit just above the highlight so the buttons don't cover the copy being reviewed.
+        chip.style.top = `${Math.max(4, r.top + scrollY + (flag ? -38 : 12))}px`;
+        chip.style.left = `${Math.max(12, r.right + scrollX - (flag ? 0 : 12))}px`;
         chip.dataset.key = s.key;
         chip.innerHTML = `<span class="lbl" title="${esc(s.label)}">${esc(s.label)}</span>
           ${open ? `<span class="n">${open}</span>` : ""}
+          ${state.team && flag && st ? `<button data-act="reflag" title="Copy updated? Reset this section to 'Needs your review'">↺ Ask again</button>` : ""}
           ${state.team ? `<button data-act="flag" class="flag-btn${flag ? " on" : ""}" title="${flag ? "Stop asking the client to review this section" : "Highlight this section for the client to review"}">${flag ? "● Flagged" : "○ Flag for review"}</button>` : ""}
           <button data-act="approve" class="${st === "approved" ? "on" : ""}" title="Approve this section">✓ Approve</button>
           <button data-act="edits" class="${st === "needs_edits" ? "on" : ""}" title="Request edits">✎ Needs edits</button>`;
@@ -338,18 +362,23 @@
     prog.textContent = targets.length ? `${reviewed}/${targets.length} ${hasFlags() ? "to review" : "sections"}` : "";
     prog.classList.toggle("done", reviewed && reviewed === targets.length);
     $(".team-pill").hidden = !state.team;
+    const pickBtn = $('.toolbar [data-act="pick"]');
+    pickBtn.hidden = !state.team;
+    pickBtn.classList.toggle("on", state.mode === "pick");
+    hoverBox.classList.toggle("pick", state.mode === "pick");
     $(".count").textContent = state.comments.filter((c) => !c.resolved).length;
     $('.toolbar [data-act="mode"]').classList.toggle("on", state.mode === "comment");
     $('.toolbar [data-act="sections"]').classList.toggle("on", state.showSections);
     $('.toolbar [data-act="sidebar"]').classList.toggle("on", state.sidebar);
     $('.toolbar [data-act="pages"]')?.classList.toggle("on", state.pagesOpen);
     if (reviewed && reviewed === targets.length && !state.nudged && load.done && !state.team) nudgeNext();
-    document.documentElement.classList.toggle("eightreview-commenting", state.mode === "comment");
+    document.documentElement.classList.toggle("eightreview-commenting", state.mode === "comment" || state.mode === "pick");
   }
 
   const GAP = 32;
 
   function hideFocus() {
+    if (state.pick) return;
     focusBox.hidden = true;
     connector.hidden = true;
     popEl.classList.remove("sheet");
@@ -612,6 +641,75 @@
     }).catch(() => {});
   }
 
+  // ---------- team: highlight any area ----------
+  const pickbar = $(".pickbar");
+
+  function choosePick(el) {
+    state.pick = { el, history: [] };
+    renderPick();
+  }
+
+  function renderPick() {
+    const p = state.pick;
+    if (!p) {
+      pickbar.hidden = true;
+      if (!state.draft && !state.openId) hideFocus();
+      return;
+    }
+    const r = p.el.getBoundingClientRect();
+    Object.assign(focusBox.style, {
+      left: `${r.left + scrollX}px`,
+      top: `${r.top + scrollY}px`,
+      width: `${r.width}px`,
+      height: `${r.height}px`,
+    });
+    focusBox.hidden = false;
+    focusBox.classList.add("pick");
+    const text = cleanText(p.el);
+    const keepNote = pickbar.querySelector("input")?.value;
+    pickbar.hidden = false;
+    pickbar.innerHTML = `<div class="pb-row"><b>Highlight this area?</b>
+        <span class="pb-what">${esc(p.el.tagName.toLowerCase())} · ${Math.round(r.width)}×${Math.round(r.height)} · “${esc(text.slice(0, 50))}${text.length > 50 ? "…" : ""}”</span></div>
+      <div class="pb-row">
+        <button class="btn light sm" data-act="pick-bigger" title="Select the surrounding block">⬆ Bigger</button>
+        <button class="btn light sm" data-act="pick-smaller" ${p.history.length ? "" : "disabled"} title="Go back to the smaller block">⬇ Smaller</button>
+        <input class="pb-note" placeholder="Note for the client (optional)" value="${esc(keepNote ?? "Please review this section")}">
+        <button class="btn primary sm orange" data-act="pick-save">Highlight for review</button>
+        <button class="btn light sm" data-act="pick-cancel">Cancel</button>
+      </div>`;
+  }
+
+  function endPick() {
+    state.pick = null;
+    state.mode = "browse";
+    focusBox.classList.remove("pick");
+    renderPick();
+    render();
+  }
+
+  async function savePick() {
+    const el = state.pick.el;
+    const heading = el.matches("h1, h2, h3, h4") ? el : el.querySelector("h1, h2, h3, h4");
+    const label = (cleanText(heading) || cleanText(el)).slice(0, 60) || "Highlighted area";
+    const key = `area-${Math.random().toString(36).slice(2, 10)}`;
+    const note = pickbar.querySelector("input").value.trim();
+    const res = await api("/api/flags", {
+      method: "POST",
+      body: {
+        pageId: PAGE,
+        sectionKey: key,
+        label,
+        note,
+        flagged: true,
+        anchor: { selector: selectorFor(el), text: cleanText(el).slice(0, 120), tag: el.tagName.toLowerCase() },
+      },
+    });
+    state.flags = res.flags;
+    state.sections = findSections();
+    endPick();
+    toast("Area highlighted for the client");
+  }
+
   // ---------- actions ----------
   async function load() {
     const [comments, statuses, flags] = await Promise.all([
@@ -623,6 +721,7 @@
     state.statuses = statuses;
     state.flags = flags.flags || {};
     state.team = TEAM_REQUESTED && flags.admin;
+    state.sections = findSections(); // hand-picked areas come from the flags
     if (TEAM_REQUESTED && !flags.admin && !load.done) toast("Team mode needs the admin token. Open the dashboard and enter it first.", 6000);
     render();
     const deep = location.hash.match(/^#comment-([\w-]+)/);
@@ -766,6 +865,28 @@
         if (state.mode === "comment") toast("Click anywhere on the page to leave a comment");
         else hoverBox.style.display = "none";
         render();
+      } else if (act === "pick") {
+        if (state.mode === "pick") return endPick();
+        state.mode = "pick";
+        state.draft = null;
+        state.openId = null;
+        popEl.innerHTML = "";
+        render();
+        toast("Click any block on the page to highlight it for review");
+      } else if (act === "pick-bigger") {
+        const parent = state.pick.el.parentElement;
+        if (parent && parent !== document.body && parent !== document.documentElement) {
+          state.pick.history.push(state.pick.el);
+          state.pick.el = parent;
+          renderPick();
+        }
+      } else if (act === "pick-smaller") {
+        if (state.pick.history.length) state.pick.el = state.pick.history.pop();
+        renderPick();
+      } else if (act === "pick-cancel") {
+        endPick();
+      } else if (act === "pick-save") {
+        await savePick();
       } else if (act === "about") {
         toast(`EightReview v${VERSION}${state.team ? " · Team mode" : ""} · Press C to comment`, 4000);
       } else if (act === "pages") {
@@ -830,6 +951,13 @@
         if (flagged) delete state.statuses[key]; // server cleared the old verdict
         render();
         toast(flagged ? "Section highlighted for the client" : "Highlight removed");
+      } else if (act === "reflag") {
+        const key = t.closest(".chip").dataset.key;
+        const res = await api("/api/flags", { method: "POST", body: { pageId: PAGE, sectionKey: key, flagged: true } });
+        state.flags = res.flags;
+        delete state.statuses[key];
+        render();
+        toast("Sent back to the client for review");
       } else if (act === "approve" || act === "edits") {
         const key = t.closest(".chip").dataset.key;
         const cur = state.statuses[key]?.status;
@@ -876,7 +1004,7 @@
 
   // Comment mode: hijack clicks on the page (capture phase so links don't navigate).
   const block = (e) => {
-    if (state.mode !== "comment" || insideUI(e)) return;
+    if ((state.mode !== "comment" && state.mode !== "pick") || insideUI(e)) return;
     e.preventDefault();
     e.stopPropagation();
   };
@@ -885,6 +1013,13 @@
     "click",
     (e) => {
       if (insideUI(e)) return;
+      if (state.mode === "pick") {
+        e.preventDefault();
+        e.stopPropagation();
+        const el = document.elementFromPoint(e.clientX, e.clientY);
+        if (el && el !== document.documentElement && el !== document.body) choosePick(el);
+        return;
+      }
       if (state.mode !== "comment") {
         // <base> points at the staging site, so "#section" links would leave the review. Scroll instead.
         const a = e.target.closest?.("a[href]");
@@ -925,7 +1060,7 @@
   document.addEventListener(
     "mousemove",
     (e) => {
-      if (state.mode !== "comment" || state.draft || insideUI(e)) {
+      if ((state.mode !== "comment" && state.mode !== "pick") || state.draft || state.pick || insideUI(e)) {
         hoverBox.style.display = "none";
         return;
       }
@@ -952,6 +1087,7 @@
       if (state.mode !== "comment") hoverBox.style.display = "none";
       render();
     } else if (e.key === "Escape") {
+      if (state.mode === "pick") return endPick();
       if (state.draft) state.draft = null;
       else if (state.openId) state.openId = null;
       else state.mode = "browse";
@@ -975,6 +1111,7 @@
     raf = requestAnimationFrame(() => {
       state.sections = findSections();
       render();
+      if (state.pick) renderPick();
       if (document.readyState === "complete") registerSections();
     });
   };
@@ -1064,19 +1201,31 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .chip button:hover { background: #444; }
 .chip button[data-act=approve].on { background: #14ae5c; }
 .chip button[data-act=edits].on { background: #f5a524; color: #1e1e1e; }
-.hl { position: absolute; pointer-events: none; border-radius: 6px; outline: 3px solid #ff7a1a; outline-offset: -3px;
-  background: rgba(255,122,26,.07); }
+.hl { position: absolute; pointer-events: none; border-radius: 6px; outline: 3px solid #ffc700; outline-offset: -3px;
+  background: rgba(255,199,0,.07); }
 .hl.approved { outline: 2px solid #14ae5c; background: rgba(20,174,92,.04); }
-.hl.needs_edits { outline-color: #f5a524; background: rgba(245,165,36,.06); }
-.hl-tag { position: absolute; left: 12px; top: 12px; background: #ff7a1a; color: #fff; font-size: 12px; font-weight: 700;
+.hl.needs_edits { outline-color: #f24822; background: rgba(242,72,34,.05); }
+.hl-tag { position: absolute; left: 0; top: -30px; background: #ffc700; color: #1e1e1e; font-size: 12px; font-weight: 700;
   padding: 4px 10px; border-radius: 6px; max-width: calc(100% - 24px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   box-shadow: 0 2px 8px rgba(0,0,0,.2); }
 .hl.approved .hl-tag { background: #14ae5c; }
-.hl.needs_edits .hl-tag { background: #f5a524; color: #1e1e1e; }
-.chip.flagged { box-shadow: 0 0 0 2px #ff7a1a, 0 4px 14px rgba(0,0,0,.2); }
-.chip button.flag-btn.on { background: #ff7a1a; }
-.team-pill { background: #ff7a1a; color: #fff; font-size: 11px; font-weight: 700; border-radius: 6px; padding: 3px 7px; margin-right: 4px; }
-.team-pill[hidden] { display: none; }
+.hl.needs_edits .hl-tag { background: #f24822; color: #fff; }
+.hl.approved .hl-tag { color: #fff; }
+.chip.flagged { box-shadow: 0 0 0 2px #ffc700, 0 4px 14px rgba(0,0,0,.2); }
+.chip button.flag-btn.on { background: #ffc700; color: #1e1e1e; }
+.hover.pick { outline-color: #ffc700; background: rgba(255,199,0,.08); }
+.focus-box.pick { outline: 3px solid #ffc700; background: rgba(255,199,0,.1); }
+.pickbar { position: fixed; left: 50%; bottom: 76px; transform: translateX(-50%); width: min(760px, calc(100vw - 24px)); background: #fff; color: #1e1e1e;
+  border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.3); padding: 10px 12px; font-size: 13px; display: grid; gap: 8px; }
+.pickbar[hidden] { display: none; }
+.pb-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pb-what { color: #777; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.pb-note { flex: 1; min-width: 160px; width: auto; padding: 6px 10px; }
+.btn.light { background: #f0f0ec; color: #1e1e1e; }
+.btn.light:disabled { opacity: .4; }
+.btn.primary.orange { background: #ffc700; color: #1e1e1e; }
+.team-pill { background: #ffc700; color: #1e1e1e; font-size: 11px; font-weight: 700; border-radius: 6px; padding: 3px 7px; margin-right: 4px; }
+.team-pill[hidden], .tb[hidden] { display: none; }
 .chip.approved { box-shadow: 0 0 0 2px #14ae5c, 0 4px 14px rgba(0,0,0,.2); }
 .chip.needs_edits { box-shadow: 0 0 0 2px #f5a524, 0 4px 14px rgba(0,0,0,.2); }
 @media (max-width: 700px) { .chip .lbl { display: none; } }
