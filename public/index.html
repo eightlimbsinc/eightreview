@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>EightReview</title>
+  <link rel="stylesheet" href="/dashboard.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap row">
+      <a href="/" class="logo"><span>8R</span> EightReview</a>
+      <span class="sp"></span>
+      <button class="btn ghost" id="token-btn" hidden>Admin token</button>
+    </div>
+  </header>
+
+  <main class="wrap" id="app">
+    <section id="list-view">
+      <div class="row head">
+        <div>
+          <h1>Review pages</h1>
+          <p class="muted">Share a review link with your client. Their comments, approvals and AI copy suggestions land here.</p>
+        </div>
+      </div>
+
+      <form id="new-page" class="card new">
+        <h2>New review page</h2>
+        <div class="grid">
+          <label>Staging URL<input name="url" type="url" required placeholder="https://blend360new.webflow.io/about-v2"></label>
+          <label>Page name<input name="name" placeholder="About page"></label>
+          <label>Client<input name="client" placeholder="Blend360"></label>
+          <label>Target SEO keywords <small>(optional, used by the AI)</small><input name="keywords" placeholder="enterprise AI consulting, data science services"></label>
+        </div>
+        <div class="row"><span class="sp"></span><button class="btn primary">Create review link</button></div>
+        <p class="err" hidden></p>
+      </form>
+
+      <div id="pages" class="pages"><p class="muted">Loading…</p></div>
+    </section>
+
+    <section id="detail-view" hidden></section>
+  </main>
+
+  <script src="/dashboard.js" type="module"></script>
+</body>
+</html>

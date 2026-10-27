@@ -1,0 +1,13 @@
+[build]
+  publish = "public"
+  command = "echo 'no build step'"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+# The review overlay is loaded cross-page; keep it fresh while we iterate.
+[[headers]]
+  for = "/overlay/*"
+  [headers.values]
+    Cache-Control = "public, max-age=60"
