@@ -21,7 +21,10 @@ async function render() {
     return;
   }
   document.title = `${project.name} · Website review`;
-  const { pages } = project;
+  // Extra blank versions show as "+N versions" on their page instead of separate cards.
+  const extra = {};
+  for (const p of project.pages) if (p.versionOf) extra[p.versionOf] = (extra[p.versionOf] || 0) + 1;
+  const pages = project.pages.filter((p) => !p.versionOf);
   const approved = pages.filter((p) => p.state === "approved").length;
   const pct = pages.length ? Math.round((approved / pages.length) * 100) : 0;
   const next = pages.find((p) => p.state === "not_started") || pages.find((p) => p.state !== "approved");
@@ -44,7 +47,7 @@ async function render() {
           ? `${p.counts.approved + p.counts.needsEdits}/${p.counts.sections} sections reviewed`
           : "";
         return `<a class="card page link-card" href="/${p.blank ? "c" : "r"}/${p.id}">
-          <div><h3>${i + 1}. ${esc(p.name)}${p.blank ? ` <span class="tag">Layout review</span>` : ""}</h3>
+          <div><h3>${i + 1}. ${esc(p.name)}${p.blank ? ` <span class="tag">Layout review${extra[p.id] ? ` · ${extra[p.id] + 1} blank versions` : ""}</span>` : ""}</h3>
             <div class="url">${esc(new URL(p.url).pathname)}</div>
             <div class="stats"><span class="tag ${color}">${label}</span>
               ${p.counts.open ? `<span class="tag">${p.counts.open} open comment${p.counts.open === 1 ? "" : "s"}</span>` : ""}

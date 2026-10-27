@@ -10,10 +10,10 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.3"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.4"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
-  const pageIndex = SIBLINGS.findIndex((p) => p.id === PAGE);
+  const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
   const TEAM_QS = new URLSearchParams(location.search).has("team") ? "?team=1" : "";
   // Blank wireframe pages open in the side-by-side view (/c/), others in the plain review (/r/).
   const reviewUrl = (id) => {
@@ -39,6 +39,7 @@
     }
   };
   const siblingByUrl = new Map(SIBLINGS.map((p) => [urlKey(p.url), p]));
+  const CURRENT = CFG.rootId || PAGE;
 
   const state = {
     comments: [],
@@ -682,7 +683,7 @@
         ${PROJECT ? `<a class="link" href="${API}/p/${PROJECT.id}" target="_top">Overview</a>` : ""}</div>
       <div class="pp-list">${rows
         .map(
-          (p, i) => `<a class="pp-item${p.id === PAGE ? " cur" : ""}" href="${reviewUrl(p.id)}" target="_top">
+          (p, i) => `<a class="pp-item${p.id === CURRENT ? " cur" : ""}" href="${reviewUrl(p.id)}" target="_top">
           <span class="dot ${p.state || ""}" title="${STATE_LABEL[p.state] || ""}"></span>
           <span class="pp-name">${i + 1}. ${esc(p.name)}</span>
           ${p.counts?.open ? `<span class="n">${p.counts.open}</span>` : ""}</a>`,
@@ -1152,7 +1153,7 @@
         } else if (a) {
           // Links to other pages in this review stay inside the review.
           const sib = siblingByUrl.get(urlKey(a.href));
-          if (sib && sib.id !== PAGE) {
+          if (sib && sib.id !== CURRENT) {
             e.preventDefault();
             go(reviewUrl(sib.id));
           }

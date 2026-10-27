@@ -191,11 +191,12 @@ async function renderProject(id) {
     ${pages.length ? `<div class="ptable">${pages
       .map((p) => `<div class="prow">
         <span class="dot ${p.state}"></span>
-        <div><div class="name"><a href="#/page/${p.id}">${esc(p.name)}</a>${p.blank ? ` <span class="tag">Blank wireframe</span>` : ""}</div><div class="url">${esc(p.url)}</div></div>
+        <div><div class="name"><a href="#/page/${p.id}">${esc(p.name)}</a>${p.versionOf ? ` <span class="tag orange">Extra blank version</span>` : p.blank ? ` <span class="tag">Blank wireframe</span>` : ""}</div><div class="url">${esc(p.url)}</div></div>
         <div class="stats" style="margin:0">${stateTag(p.state)}${p.counts.flagged ? `<span class="tag orange">${p.counts.flagged} flagged</span>` : ""}${p.counts.open ? `<span class="tag blue">${p.counts.open} open</span>` : ""}</div>
         <div class="actions">
           <a class="btn light sm" href="/${p.blank ? "c" : "r"}/${p.id}?team=1" target="_blank" rel="noopener" title="Opens in team mode, where you can flag sections for the client">Open</a>
-          <button class="btn light sm" data-blank="${p.id}" data-val="${!p.blank}" title="${p.blank ? "Review the real page copy instead" : "Review the layout with copy blanked out, next to the live page"}">${p.blank ? "Use real copy" : "Make blank"}</button>
+          ${p.blank ? `<button class="btn light sm" data-version="${p.id}" title="Add another blank copy of this page with its own comments (Blank 2, Blank 3…)">+ Blank version</button>` : ""}
+          <button class="btn light sm" data-blank="${p.id}" data-val="${!p.blank}" ${p.versionOf ? "hidden" : ""} title="${p.blank ? "Review the real page copy instead" : "Review the layout with copy blanked out, next to the live page"}">${p.blank ? "Use real copy" : "Make blank"}</button>
           <button class="btn light sm" data-rename="${p.id}" data-name="${esc(p.name)}">Rename</button>
           <a class="btn light sm" href="#/page/${p.id}">Feedback</a>
           <button class="btn light sm" data-delpage="${p.id}" data-name="${esc(p.name)}" style="color:var(--red)">✕</button>
@@ -255,6 +256,13 @@ async function renderProject(id) {
     }
   });
 
+  app.querySelectorAll("[data-version]").forEach(
+    (b) =>
+      (b.onclick = async () => {
+        await api(`/api/pages/${b.dataset.version}/versions`, { method: "POST" });
+        renderProject(id);
+      }),
+  );
   app.querySelectorAll("[data-blank]").forEach(
     (b) =>
       (b.onclick = async () => {

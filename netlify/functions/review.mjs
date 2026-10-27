@@ -43,12 +43,15 @@ export default handle(async (req, context) => {
   const config = JSON.stringify({
     blank: Boolean(page.blank) && !live,
     pageId: page.id,
-    name: page.name,
+    // Blank versions show under the page's own name ("BlendX"), not "BlendX · Blank 2".
+    name: page.versionOf ? siblings.find((p) => p.id === page.versionOf)?.name || page.name : page.name,
     url: page.url,
     api: origin,
     project: project && { id: project.id, name: project.name, client: project.client },
     // Lets the overlay keep links between staged pages inside the review.
-    pages: siblings.map((p) => ({ id: p.id, name: p.name, url: p.url, blank: Boolean(p.blank) })),
+    // Extra blank versions are switched in /c/; page-to-page navigation only steps through the first one.
+    pages: siblings.filter((p) => !p.versionOf).map((p) => ({ id: p.id, name: p.name, url: p.url, blank: Boolean(p.blank) })),
+    rootId: page.versionOf || page.id,
   });
 
   let html = await upstream.text();

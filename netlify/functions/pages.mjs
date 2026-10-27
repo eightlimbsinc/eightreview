@@ -5,6 +5,7 @@
 //   GET    /api/pages/:id          one page (public; used by the overlay)
 //   PATCH  /api/pages/:id          update fields (admin)
 //   DELETE /api/pages/:id          delete page + its feedback (admin)
+//   POST   /api/pages/:id/versions add another blank version of a blank page (admin)
 import { store, listJSON, newId, json, error, readBody, isAdmin, clip, handle } from "./_lib/store.mjs";
 import { pageSummary, projectPages, nameFromUrl, urlKey } from "./_lib/summary.mjs";
 
@@ -96,6 +97,29 @@ export default handle(async (req, context) => {
   const page = id && (await s.get(pageKey(id)));
   if (!page) return error(404, "Page not found");
 
+  // Extra blank versions of the same live page: separate review pages (own comments,
+  // highlights, approvals) grouped under the first one, switched between in /c/:id.
+  if (req.method === "POST" && context.params?.sub === "versions") {
+    const rootId = page.versionOf || page.id;
+    const root = rootId === page.id ? page : await s.get(pageKey(rootId));
+    const siblings = await projectPages(page.projectId);
+    const count = siblings.filter((p) => p.id === rootId || p.versionOf === rootId).length;
+    const version = {
+      id: newId(),
+      projectId: page.projectId,
+      name: `${root.name} · Blank ${count + 1}`,
+      keywords: root.keywords || "",
+      url: root.url,
+      blank: true,
+      versionOf: rootId,
+      order: (root.order ?? 0) + (count + 1) / 100,
+      createdAt: new Date().toISOString(),
+    };
+    if (!root.blank) await s.setJSON(pageKey(rootId), { ...root, blank: true });
+    await s.setJSON(pageKey(version.id), version);
+    return json(version, 201);
+  }
+
   if (req.method === "PATCH") {
     let fields;
     try {
@@ -112,10 +136,19 @@ export default handle(async (req, context) => {
     const { blobs } = await s.list({ prefix: `comments/${id}/` });
     await Promise.all(blobs.map((b) => s.delete(b.key)));
     await Promise.all([s.delete(`status/${id}`), s.delete(`sections/${id}`), s.delete(`flags/${id}`), s.delete(pageKey(id))]);
+    // Deleting the first version promotes the next one, so the group survives.
+    if (!page.versionOf) {
+      const rest = (await projectPages(page.projectId)).filter((p) => p.versionOf === id);
+      if (rest.length) {
+        const [first, ...others] = rest;
+        await s.setJSON(pageKey(first.id), { ...first, versionOf: undefined, name: page.name });
+        await Promise.all(others.map((o) => s.setJSON(pageKey(o.id), { ...o, versionOf: first.id })));
+      }
+    }
     return json({ ok: true });
   }
 
   return error(405, "Method not allowed");
 });
 
-export const config = { path: ["/api/pages", "/api/pages/:id"] };
+export const config = { path: ["/api/pages", "/api/pages/:id", "/api/pages/:id/:sub"] };
