@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.14"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.15"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -534,7 +534,11 @@
     $('.toolbar [data-act="pages"]')?.classList.toggle("on", state.pagesOpen);
     if (reviewed && reviewed === targets.length && !state.nudged && load.done && !state.team) nudgeNext();
     document.documentElement.classList.toggle("eightreview-commenting", state.mode === "comment" || state.mode === "pick");
-    glass.hidden = !(canHover && (state.mode === "comment" || state.mode === "pick"));
+    // Blank wireframes freeze hover effects in every mode (cards turn only with "Flip card");
+    // live pages behave like the real site except while commenting or highlighting.
+    const picking = state.mode === "comment" || state.mode === "pick";
+    glass.hidden = !(canHover && (picking || CFG.blank));
+    glass.classList.toggle("picking", picking);
     if (glass.hidden) flipBtn.hidden = true;
   }
 
@@ -1704,6 +1708,14 @@
     if (state.mode === "comment") {
       hoverBox.style.display = "none";
       startDraft(el, e.clientX, e.clientY);
+      return;
+    }
+    // Browse mode on a frozen (blank) page: a click on the page just closes open panels.
+    if (state.pagesOpen || (state.openId && !state.draft)) {
+      state.pagesOpen = false;
+      state.openId = null;
+      renderPagesPanel();
+      render();
     }
   });
 
@@ -1802,7 +1814,8 @@
 :host { all: initial; }
 * { box-sizing: border-box; font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
 .layer { position: absolute; top: 0; left: 0; }
-.glass { position: fixed; inset: 0; z-index: -1; cursor: crosshair; background: transparent; }
+.glass { position: fixed; inset: 0; z-index: -1; cursor: default; background: transparent; }
+.glass.picking { cursor: crosshair; }
 .glass[hidden], .flipbtn[hidden] { display: none; }
 .flipbtn { position: absolute; z-index: 1; border: 0; border-radius: 999px; padding: 7px 12px; background: #1e1e1e; color: #fff;
   font-size: 12px; font-weight: 700; box-shadow: 0 4px 14px rgba(0,0,0,.3); cursor: pointer; }
