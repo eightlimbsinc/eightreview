@@ -2,11 +2,11 @@
 //   GET  /api/status?page=ID   -> { [sectionKey]: { status, label, author, at } }
 //   POST /api/status           { pageId, sectionKey, label, status, author }
 //   POST /api/status           { pageId, sections: [{ key, label }] }  register the page's sections
-import { store, json, error, readBody, clip } from "./_lib/store.mjs";
+import { store, json, error, readBody, clip, handle } from "./_lib/store.mjs";
 
 const STATUSES = new Set(["approved", "needs_edits", "pending"]);
 
-export default async (req) => {
+export default handle(async (req) => {
   const s = store();
   if (req.method === "GET") {
     const pageId = new URL(req.url).searchParams.get("page");
@@ -38,6 +38,6 @@ export default async (req) => {
     };
   await s.setJSON(`status/${body.pageId}`, all);
   return json(all);
-};
+});
 
 export const config = { path: "/api/status" };

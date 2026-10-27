@@ -2,7 +2,7 @@
 //   POST /api/seo { pageId, note, current, tag, sectionLabel }
 //   -> { interpretation, variants: [{ text, rationale }], tips }
 import Anthropic from "@anthropic-ai/sdk";
-import { store, json, error, readBody, clip } from "./_lib/store.mjs";
+import { store, json, error, readBody, clip, handle } from "./_lib/store.mjs";
 
 const client = new Anthropic(); // reads ANTHROPIC_API_KEY
 
@@ -41,7 +41,7 @@ const SCHEMA = {
   },
 };
 
-export default async (req) => {
+export default handle(async (req) => {
   if (req.method !== "POST") return error(405, "Method not allowed");
   if (!process.env.ANTHROPIC_API_KEY) return error(503, "ANTHROPIC_API_KEY is not set on the server");
 
@@ -84,6 +84,6 @@ export default async (req) => {
     if (e instanceof SyntaxError) return error(502, "AI returned an unexpected response");
     throw e;
   }
-};
+});
 
 export const config = { path: "/api/seo" };

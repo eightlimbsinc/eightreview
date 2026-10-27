@@ -1,7 +1,7 @@
 // Lists the page URLs in a staging site's sitemap so the team can bulk-add them.
 //   POST /api/sitemap { url, projectId }  -> { urls: [...] }   (admin)
 // Accepts a sitemap URL or any page on the site (we then try /sitemap.xml).
-import { store, json, error, readBody, isAdmin } from "./_lib/store.mjs";
+import { store, json, error, readBody, isAdmin, handle } from "./_lib/store.mjs";
 import { fetchStaging, stagingPassword } from "./_lib/staging.mjs";
 
 const locs = (xml) => [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) => m[1].replace(/&amp;/g, "&"));
@@ -12,7 +12,7 @@ async function fetchText(url, password) {
   return res.text();
 }
 
-export default async (req) => {
+export default handle(async (req) => {
   if (req.method !== "POST") return error(405, "Method not allowed");
   if (!isAdmin(req)) return error(401, "Admin token required");
   const body = await readBody(req);
@@ -44,6 +44,6 @@ export default async (req) => {
     if (/password/i.test(e.message)) return error(502, e.message);
     return error(502, `Couldn't read a sitemap at ${sitemapUrl}. In Webflow, turn on Site settings → SEO → Auto-generate sitemap, or paste URLs instead. (${e.message})`);
   }
-};
+});
 
 export const config = { path: "/api/sitemap" };

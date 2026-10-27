@@ -93,3 +93,14 @@ export function isAdmin(req) {
 // Trim free text coming from the browser so a single request can't bloat storage.
 export const clip = (value, max = 4000) =>
   typeof value === "string" ? value.slice(0, max) : "";
+
+// Wraps a function handler so crashes come back as readable JSON (and land in the
+// Netlify function log) instead of Netlify's bare 502.
+export const handle = (fn) => async (req, context) => {
+  try {
+    return await fn(req, context);
+  } catch (e) {
+    console.error(`[${req.method} ${new URL(req.url).pathname}]`, e);
+    return json({ error: `Server error: ${e?.message || e}` }, 500);
+  }
+};

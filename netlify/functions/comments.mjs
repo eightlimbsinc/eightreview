@@ -3,7 +3,7 @@
 //   POST   /api/comments                 create { pageId, author, body, anchor, sectionKey, copy }
 //   PATCH  /api/comments/:id             { pageId, resolved?, reply?: {author, body}, body? }
 //   DELETE /api/comments/:id?page=ID
-import { store, listJSON, newId, json, error, readBody, clip } from "./_lib/store.mjs";
+import { store, listJSON, newId, json, error, readBody, clip, handle } from "./_lib/store.mjs";
 
 const key = (pageId, id) => `comments/${pageId}/${id}`;
 
@@ -28,7 +28,7 @@ function cleanCopy(c) {
   };
 }
 
-export default async (req, context) => {
+export default handle(async (req, context) => {
   const s = store();
   const url = new URL(req.url);
   const id = context.params?.id;
@@ -97,6 +97,6 @@ export default async (req, context) => {
   }
 
   return error(405, "Method not allowed");
-};
+});
 
 export const config = { path: ["/api/comments", "/api/comments/:id"] };

@@ -88,8 +88,16 @@
       headers: { "content-type": "application/json", ...(opts.headers || {}) },
       body: opts.body ? JSON.stringify(opts.body) : undefined,
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+    const text = await res.text();
+    let data = {};
+    try {
+      data = JSON.parse(text);
+    } catch {}
+    if (!res.ok) {
+      const what = `${opts.method || "GET"} ${path.split("?")[0]}`;
+      console.error("[EightReview]", what, res.status, text.slice(0, 500));
+      throw new Error(data.error || `Request failed (${res.status}) on ${what}${text ? `: ${text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 120)}` : ""}`);
+    }
     return data;
   }
 

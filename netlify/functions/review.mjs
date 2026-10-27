@@ -2,7 +2,7 @@
 //   GET /r/:id
 // Because the page is same-origin with the overlay, comments can attach to real
 // elements and nothing has to be added to the Webflow project.
-import { store, error } from "./_lib/store.mjs";
+import { store, error, handle } from "./_lib/store.mjs";
 import { projectPages } from "./_lib/summary.mjs";
 import { fetchStaging, stagingPassword } from "./_lib/staging.mjs";
 
@@ -18,7 +18,7 @@ const errorPage = (message) =>
     { status: 502, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } },
   );
 
-export default async (req, context) => {
+export default handle(async (req, context) => {
   const page = await store().get(`pages/${context.params.id}`);
   if (!page) return error(404, "Review page not found");
 
@@ -66,6 +66,6 @@ export default async (req, context) => {
       "x-robots-tag": "noindex, nofollow",
     },
   });
-};
+});
 
 export const config = { path: "/r/:id" };

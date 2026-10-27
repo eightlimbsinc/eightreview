@@ -5,7 +5,7 @@
 //   GET    /api/pages/:id          one page (public; used by the overlay)
 //   PATCH  /api/pages/:id          update fields (admin)
 //   DELETE /api/pages/:id          delete page + its feedback (admin)
-import { store, listJSON, newId, json, error, readBody, isAdmin, clip } from "./_lib/store.mjs";
+import { store, listJSON, newId, json, error, readBody, isAdmin, clip, handle } from "./_lib/store.mjs";
 import { pageSummary, projectPages, nameFromUrl, urlKey } from "./_lib/summary.mjs";
 
 const pageKey = (id) => `pages/${id}`;
@@ -31,7 +31,7 @@ function cleanFields(body) {
   return out;
 }
 
-export default async (req, context) => {
+export default handle(async (req, context) => {
   const s = store();
   const id = context.params?.id;
 
@@ -113,6 +113,6 @@ export default async (req, context) => {
   }
 
   return error(405, "Method not allowed");
-};
+});
 
 export const config = { path: ["/api/pages", "/api/pages/:id"] };

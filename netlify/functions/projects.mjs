@@ -4,7 +4,7 @@
 //   GET    /api/projects/:id           project + pages with progress (public: powers the client portal)
 //   PATCH  /api/projects/:id           update (admin)
 //   DELETE /api/projects/:id           delete project, its pages and their feedback (admin)
-import { store, listJSON, newId, json, error, readBody, isAdmin, clip } from "./_lib/store.mjs";
+import { store, listJSON, newId, json, error, readBody, isAdmin, clip, handle } from "./_lib/store.mjs";
 import { pageSummary, projectPages } from "./_lib/summary.mjs";
 
 const key = (id) => `projects/${id}`;
@@ -28,7 +28,7 @@ async function withPages(project) {
   return { ...publicProject(project), pages, progress: { total: pages.length, approved: done } };
 }
 
-export default async (req, context) => {
+export default handle(async (req, context) => {
   const s = store();
   const id = context.params?.id;
 
@@ -79,6 +79,6 @@ export default async (req, context) => {
   }
 
   return error(405, "Method not allowed");
-};
+});
 
 export const config = { path: ["/api/projects", "/api/projects/:id"] };
