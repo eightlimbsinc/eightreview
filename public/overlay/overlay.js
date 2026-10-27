@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.4"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.5"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -51,6 +51,8 @@
     showSections: true,
     sidebar: false,
     flags: {}, // sections the team flagged for review
+    panel: null, // section key whose suggested copy is open
+    panelEdit: false,
     team: false, // team mode: can flag sections
     pagesOpen: false,
     projectPages: null, // fetched on demand for the page switcher
@@ -313,6 +315,8 @@
       <span class="team-pill" hidden title="You're in team mode: flag the sections the client should review">Team</span>
     </div>
     <div class="pickbar" hidden></div>
+    <aside class="sugg" hidden></aside>
+    <div class="sugg-arrow" hidden><svg><defs><marker id="er-ah" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#ffc700"/></marker></defs><line marker-end="url(#er-ah)"/></svg></div>
     <div class="band" hidden></div>
     <div class="toast" hidden></div>
     <div class="modal" hidden></div>`;
@@ -421,6 +425,7 @@
         chip.dataset.key = s.key;
         chip.innerHTML = `<span class="lbl" title="${esc(s.label)}">${esc(s.label)}</span>
           ${open ? `<span class="n">${open}</span>` : ""}
+          ${suggestButton(s.key, flag)}
           ${state.team && flag && st ? `<button data-act="reflag" title="Copy updated? Reset this section to 'Needs your review'">↺ Ask again</button>` : ""}
           ${state.team
             ? flag
@@ -785,6 +790,7 @@
         <button class="btn light sm" data-act="pick-smaller" ${p.history.length ? "" : "disabled"} title="Go back to the smaller block">⬇ Smaller</button>
         <input class="pb-note" placeholder="Note for the client (optional)" value="${esc(keepNote ?? "Please review this section")}">
         <button class="btn primary sm orange" data-act="pick-save">Highlight for review</button>
+        <button class="btn primary sm violet" data-act="pick-save-suggest" title="Highlight it and write recommended SEO/AEO copy the client can approve or edit">Highlight + ✨ suggest copy</button>
         <button class="btn light sm" data-act="pick-cancel">Cancel</button>
       </div>`;
   }
@@ -821,6 +827,246 @@
     state.sections = findSections();
     endPick();
     toast("Area highlighted for the client");
+    return key;
+  }
+
+  // ---------- suggested SEO/AEO copy ----------
+  // The team asks for recommended copy on a highlighted section; it's written and scored in the
+  // background (recommend-background function). The client opens it in a side panel next to the
+  // page, with SEO keywords and AEO phrases coloured so they know to keep them.
+  const BLOCKS = "h1,h2,h3,h4,h5,h6,p,li,a,button,blockquote,figcaption,label,td,th,dt,dd";
+  const TAG_NAMES = { h1: "Main heading", h2: "Heading", h3: "Heading", h4: "Small heading", h5: "Small heading", h6: "Small heading",
+    p: "Paragraph", li: "List item", a: "Button / link", button: "Button", blockquote: "Quote", figcaption: "Caption", label: "Label" };
+  const pending = (r) => r && (r.status === "writing" || r.status === "scoring");
+
+  function sectionItems(sec) {
+    const items = [];
+    const seen = new Set();
+    for (const root of sec.members || [sec.el]) {
+      const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      while (w.nextNode() && items.length < 30) {
+        const n = w.currentNode;
+        const p = n.parentElement;
+        if (!p || !n.nodeValue.trim() || SKIP.has(p.tagName) || p.closest("svg")) continue;
+        const block = p.closest(BLOCKS);
+        let el = block && root.contains(block) ? block : p.classList.contains("er-blank") ? p.parentElement : p;
+        if (seen.has(el) || [...seen].some((o) => o.contains(el))) continue;
+        if (!el.getClientRects().length) continue; // hidden at this size (e.g. mobile-only copy)
+        const text = cleanText(el);
+        if (!text) continue;
+        seen.add(el);
+        items.push({ tag: el.tagName.toLowerCase(), text: text.slice(0, 800) });
+      }
+    }
+    return items;
+  }
+
+  async function requestSuggestion(key) {
+    const sec = state.sections.find((x) => x.key === key);
+    if (!sec) return toast("Couldn't find that section on the page");
+    const items = sectionItems(sec);
+    if (!items.length) return toast("There's no text in this area to rewrite");
+    const flag = state.flags[key];
+    flag.recommendation = { status: "writing" };
+    render();
+    const res = await fetch(`${API}/.netlify/functions/recommend-background`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-admin-token": adminToken() },
+      body: JSON.stringify({ pageId: PAGE, sectionKey: key, label: sec.label, note: flag.note, items }),
+    });
+    if (res.status === 401) return toast("Sign in on the dashboard to suggest copy");
+    toast("Writing SEO/AEO copy… this takes about a minute", 4000);
+    pollSuggestions();
+  }
+
+  let polling = 0;
+  function pollSuggestions() {
+    clearTimeout(polling);
+    polling = setTimeout(async () => {
+      try {
+        const res = await api(`/api/flags?page=${PAGE}`);
+        state.flags = res.flags || {};
+        state.sections = findSections();
+        render();
+        renderSuggestion();
+      } catch {}
+      if (Object.values(state.flags).some((f) => pending(f.recommendation))) pollSuggestions();
+    }, 3000);
+  }
+
+  function suggestButton(key, flag) {
+    const r = flag?.recommendation;
+    if (r?.items?.length) {
+      const on = state.panel === key ? " on" : "";
+      return `<button data-act="sugg-open" class="sugg-btn${on}" title="See the recommended SEO/AEO copy for this section">💡 Suggested copy</button>`;
+    }
+    if (!state.team || !flag) return "";
+    if (pending(r)) return `<button class="sugg-btn busy" disabled>✨ Writing copy…</button>`;
+    return `<button data-act="sugg-make" class="sugg-make" title="Write recommended SEO/AEO copy for the client to approve or edit">✨ Suggest copy</button>`;
+  }
+
+  // Wrap SEO keywords / AEO phrases in coloured marks (longest first, no overlaps).
+  function markText(text, r) {
+    const terms = [
+      ...(r.seo_keywords || []).map((t) => [t, "seo"]),
+      ...(r.aeo_longtail || []).map((t) => [t, "aeo"]),
+    ].sort((a, b) => b[0].length - a[0].length);
+    if (!terms.length) return esc(text);
+    const lower = text.toLowerCase();
+    const marks = [];
+    for (const [t, kind] of terms) {
+      const needle = t.toLowerCase();
+      for (let i = lower.indexOf(needle); i !== -1; i = lower.indexOf(needle, i + needle.length)) {
+        if (!marks.some((m) => i < m.end && i + needle.length > m.start)) marks.push({ start: i, end: i + needle.length, kind });
+      }
+    }
+    marks.sort((a, b) => a.start - b.start);
+    let out = "";
+    let at = 0;
+    for (const m of marks) {
+      out += esc(text.slice(at, m.start)) + `<mark class="${m.kind}">${esc(text.slice(m.start, m.end))}</mark>`;
+      at = m.end;
+    }
+    return out + esc(text.slice(at));
+  }
+
+  const keptTerms = (r, original) =>
+    [...(r.seo_keywords || []), ...(r.aeo_longtail || [])].filter((t) => original.toLowerCase().includes(t.toLowerCase()));
+
+  const scoreChip = (label, n) => `<span class="sc ${n >= 75 ? "good" : n >= 50 ? "ok" : "low"}"><b>${n}</b> ${label}</span>`;
+
+  function renderSuggestion() {
+    const panel = $(".sugg");
+    const key = state.panel;
+    const flag = key && state.flags[key];
+    const r = flag?.recommendation;
+    const sec = key && state.sections.find((x) => x.key === key);
+    if (!r?.items?.length || !sec) {
+      $(".toolbar").classList.remove("docked");
+      panel.hidden = true;
+      $(".sugg-arrow").hidden = true;
+      document.documentElement.style.removeProperty("margin-right");
+      return;
+    }
+    const docked = innerWidth >= 900;
+    panel.classList.toggle("sheet", !docked);
+    // Make room so the panel never covers the page.
+    if (docked) document.documentElement.style.setProperty("margin-right", "400px", "important");
+    else document.documentElement.style.removeProperty("margin-right");
+    panel.hidden = false;
+    $(".toolbar").classList.toggle("docked", docked);
+
+    const decided = state.statuses[key]?.status === "approved";
+    const ev = r.evaluation;
+    const editing = state.panelEdit;
+    const keepEdits = editing ? [...panel.querySelectorAll(".sp-edit")].map((t) => t.value) : null;
+    panel.innerHTML = `<div class="sp-h"><span class="sp-badge">💡 Suggested copy</span><span class="sp-for">${esc(sec.label)}</span>
+        <button class="icon" data-act="sugg-close" title="Close">✕</button></div>
+      <ol class="steps">
+        <li>Read the new copy below. ${docked ? "The arrow shows which part of the page it's for." : ""}</li>
+        <li><mark class="seo">Coloured words</mark> help people find you on Google and AI search, so please <b>keep them</b>.</li>
+        <li>Click <b>✓ Use this copy</b>, or <b>✎ Change it</b> to make your own edits.</li>
+      </ol>
+      <div class="legend"><span><mark class="seo">blue</mark> SEO keyword</span><span><mark class="aeo">purple</mark> AI-search phrase</span></div>
+      ${decided && !editing ? `<div class="sp-done">✓ Approved. Thank you! You can still change it below.</div>` : ""}
+      <div class="sp-items">${r.items
+        .map((it, i) => {
+          const name = TAG_NAMES[it.tag] || "Text";
+          if (editing) {
+            const val = keepEdits?.[i] ?? it.recommended;
+            const missing = keptTerms(r, it.recommended).filter((t) => !val.toLowerCase().includes(t.toLowerCase()));
+            return `<div class="sp-item"><div class="sp-tag">${name}</div>
+              <textarea class="sp-edit" data-i="${i}" rows="${Math.min(6, Math.ceil(val.length / 42) + 1)}">${esc(val)}</textarea>
+              <div class="sp-warn" ${missing.length ? "" : "hidden"}>⚠ Try to keep: ${missing.map((t) => `“${esc(t)}”`).join(", ")}</div></div>`;
+          }
+          return `<div class="sp-item"><div class="sp-tag">${name}</div><div class="sp-text">${markText(it.recommended, r)}</div>
+            ${it.original && it.original !== it.recommended ? `<details><summary>Current copy</summary><div class="sp-old">${esc(it.original)}</div></details>` : ""}</div>`;
+        })
+        .join("")}</div>
+      ${r.rationale && !editing ? `<p class="sp-why"><b>Why it's better:</b> ${esc(r.rationale)}</p>` : ""}
+      ${pending(r)
+        ? `<div class="sp-score busy"><span class="spin"></span> Checking the score with the Blend360 SEO/AEO rubric…</div>`
+        : ev
+          ? `<details class="sp-score"><summary>Score <b>${ev.overall}/100</b> ${scoreChip("SEO", ev.seo)}${scoreChip("AEO", ev.aeo)}${scoreChip("Voice", ev.brand_voice)}${scoreChip("Quality", ev.content_quality)}</summary>
+              ${ev.summary ? `<p>${esc(ev.summary)}</p>` : ""}
+              ${ev.improvements?.length ? `<b>Could be even better:</b><ul>${ev.improvements.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+              <p class="sp-note">AI estimate using the Blend360 rubric. Some checks (meta title, FAQ, word count) only apply to full articles, so a single section scores lower. A person still reviews everything.</p></details>`
+          : r.error ? `<div class="sp-score">${esc(r.error)}</div>` : ""}
+      <div class="sp-actions">${editing
+        ? `<button class="btn primary" data-act="sugg-save">Save my version</button><button class="btn light" data-act="sugg-cancel">Cancel</button>`
+        : `<button class="btn primary green" data-act="sugg-use">✓ Use this copy</button><button class="btn light" data-act="sugg-edit">✎ Change it</button>`}
+        ${state.team ? `<span class="sp" ></span><button class="btn light sm" data-act="sugg-make" title="Write new suggested copy for this section">↻ Rewrite</button>` : ""}</div>`;
+    drawArrow();
+  }
+
+  // Arrow from the panel to the section it's about (desktop only).
+  function drawArrow() {
+    const arrow = $(".sugg-arrow");
+    const sec = state.panel && state.sections.find((x) => x.key === state.panel);
+    const panel = $(".sugg");
+    if (!sec || panel.hidden || panel.classList.contains("sheet")) return (arrow.hidden = true);
+    const r = rectOf(sec);
+    const p = panel.getBoundingClientRect();
+    if (r.bottom < 0 || r.top > innerHeight) return (arrow.hidden = true);
+    const y2 = Math.max(r.top + 16, Math.min(r.top + 60, r.bottom - 16));
+    const x2 = Math.min(r.right, p.left - 24) + 4;
+    const x1 = p.left - 2;
+    const y1 = Math.max(p.top + 40, Math.min(y2, p.bottom - 40));
+    const line = arrow.querySelector("line");
+    Object.entries({ x1, y1, x2, y2 }).forEach(([k, v]) => line.setAttribute(k, v));
+    arrow.hidden = false;
+  }
+  addEventListener("scroll", () => state.panel && drawArrow(), { passive: true });
+
+  function openSuggestion(key) {
+    state.panel = key;
+    state.panelEdit = false;
+    renderSuggestion();
+    const sec = state.sections.find((x) => x.key === key);
+    (sec?.heading || sec?.el)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setTimeout(() => {
+      render();
+      drawArrow();
+    }, 500);
+  }
+
+  function closeSuggestion() {
+    state.panel = null;
+    state.panelEdit = false;
+    renderSuggestion();
+    render();
+  }
+
+  async function submitSuggestion(texts, edited) {
+    const key = state.panel;
+    const r = state.flags[key].recommendation;
+    const sec = state.sections.find((x) => x.key === key);
+    const target = sec.heading || sec.members?.[0] || sec.el;
+    const author = await ensureName();
+    const c = await api("/api/comments", {
+      method: "POST",
+      body: {
+        pageId: PAGE,
+        author,
+        body: edited ? "I edited the suggested copy." : "I approved the suggested copy.",
+        anchor: { ...anchorOf(target), xPct: 0.02, yPct: 0.1 },
+        sectionKey: key,
+        sectionLabel: sec.label,
+        viewport: innerWidth,
+        copy: {
+          current: r.items.map((x) => x.original).join("\n"),
+          proposed: texts.join("\n"),
+          source: edited ? "reviewer" : "ai",
+          rationale: edited ? "" : r.rationale || "",
+        },
+      },
+    });
+    state.comments.push(c);
+    await setStatus(key, "approved", false);
+    state.panelEdit = false;
+    renderSuggestion();
+    render();
+    toast(edited ? "Saved your version. Thank you!" : "Copy approved. Thank you!");
   }
 
   // ---------- actions ----------
@@ -837,6 +1083,8 @@
     // Signed-in team members comment under their Google name.
     if (state.team && flags.user?.name && getName() !== flags.user.name) setName(flags.user.name);
     state.sections = findSections(); // hand-picked areas come from the flags
+    if (Object.values(state.flags).some((f) => pending(f.recommendation))) pollSuggestions();
+    if (state.panel && !state.panelEdit) renderSuggestion();
     if (TEAM_REQUESTED && !flags.admin && !load.done) toast("Team mode needs you to sign in on the dashboard first.", 6000);
     render();
     const deep = location.hash.match(/^#comment-([\w-]+)/);
@@ -1006,6 +1254,30 @@
         endPick();
       } else if (act === "pick-save") {
         await savePick();
+      } else if (act === "pick-save-suggest") {
+        const key = await savePick();
+        await requestSuggestion(key);
+      } else if (act === "sugg-make") {
+        const key = t.closest(".chip")?.dataset.key || state.panel;
+        if (state.flags[key]?.recommendation?.items?.length && !confirm("Write new suggested copy for this section? The current suggestion will be replaced.")) return;
+        await requestSuggestion(key);
+      } else if (act === "sugg-open") {
+        const key = t.closest(".chip").dataset.key;
+        if (state.panel === key) closeSuggestion();
+        else openSuggestion(key);
+      } else if (act === "sugg-close") {
+        closeSuggestion();
+      } else if (act === "sugg-edit") {
+        state.panelEdit = true;
+        renderSuggestion();
+      } else if (act === "sugg-cancel") {
+        state.panelEdit = false;
+        renderSuggestion();
+      } else if (act === "sugg-use") {
+        await submitSuggestion(state.flags[state.panel].recommendation.items.map((x) => x.recommended), false);
+      } else if (act === "sugg-save") {
+        const texts = [...$(".sugg").querySelectorAll(".sp-edit")].map((x) => x.value.trim());
+        await submitSuggestion(texts, true);
       } else if (act === "about") {
         toast(`EightReview v${VERSION}${state.team ? " · Team mode" : ""} · Press C to comment`, 4000);
       } else if (act === "pages") {
@@ -1113,6 +1385,17 @@
         patchComment(state.openId, { reply: { author, body } }).catch((err) => toast(err.message));
       });
     }
+  });
+
+  ui.addEventListener("input", (e) => {
+    if (!e.target.classList?.contains("sp-edit")) return;
+    const r = state.flags[state.panel]?.recommendation;
+    const it = r?.items[+e.target.dataset.i];
+    if (!it) return;
+    const missing = keptTerms(r, it.recommended).filter((t) => !e.target.value.toLowerCase().includes(t.toLowerCase()));
+    const warn = e.target.nextElementSibling;
+    warn.hidden = !missing.length;
+    warn.textContent = `⚠ Try to keep: ${missing.map((t) => `“${t}”`).join(", ")}`;
   });
 
   ui.addEventListener("keydown", (e) => {
@@ -1291,6 +1574,7 @@
       state.sections = findSections();
       render();
       if (state.pick) renderPick();
+      if (state.panel) drawArrow();
       if (document.readyState === "complete") registerSections();
     });
   };
@@ -1398,6 +1682,48 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .chip button.flag-btn.remove:hover { background: #f24822; color: #fff; }
 .hover.pick { outline-color: #ffc700; background: rgba(255,199,0,.08); }
 .focus-box.pick { outline: 3px solid #ffc700; background: rgba(255,199,0,.1); }
+.sugg { position: fixed; top: 0; right: 0; bottom: 0; width: 400px; background: #fff; color: #1e1e1e; overflow-y: auto; z-index: 3;
+  box-shadow: -10px 0 30px rgba(0,0,0,.18); padding: 16px 16px 0; font-size: 14px; line-height: 1.5; border-left: 4px solid #ffc700; }
+.toolbar.docked { left: calc((100vw - 400px) / 2); }
+.sugg[hidden], .sugg-arrow[hidden] { display: none; }
+.sugg.sheet { top: auto; left: 0; width: auto; max-height: 72vh; border-left: 0; border-top: 4px solid #ffc700; border-radius: 16px 16px 0 0; }
+.sp-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.sp-badge { background: #ffc700; color: #1e1e1e; font-weight: 800; border-radius: 999px; padding: 4px 12px; font-size: 13px; }
+.sp-for { flex: 1; font-weight: 600; color: #555; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.steps { margin: 0 0 10px; padding-left: 20px; color: #333; font-size: 13px; display: grid; gap: 4px; }
+.legend { display: flex; gap: 12px; font-size: 12px; color: #555; margin-bottom: 12px; flex-wrap: wrap; }
+mark.seo { background: #d6ebff; color: #0a4d8c; border-radius: 4px; padding: 0 3px; box-shadow: inset 0 -2px 0 #0d99ff; }
+mark.aeo { background: #efe5ff; color: #5b21b6; border-radius: 4px; padding: 0 3px; box-shadow: inset 0 -2px 0 #8b5cf6; }
+.sp-items { display: grid; gap: 10px; }
+.sp-item { border: 1px solid #eee; border-radius: 10px; padding: 10px 12px; background: #fcfcfb; }
+.sp-tag { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: #999; margin-bottom: 4px; }
+.sp-text { white-space: pre-wrap; font-size: 15px; }
+.sp-item details { margin-top: 6px; font-size: 12px; color: #777; }
+.sp-old { white-space: pre-wrap; margin-top: 4px; }
+.sp-edit { font-size: 14px; line-height: 1.5; }
+.sp-warn { margin-top: 4px; font-size: 12px; color: #b45309; }
+.sp-warn[hidden] { display: none; }
+.sp-why { font-size: 13px; color: #444; margin: 12px 0 0; }
+.sp-done { background: #e3f6ec; color: #0b7a40; border-radius: 8px; padding: 8px 10px; font-weight: 600; margin-bottom: 10px; }
+.sp-score { margin-top: 12px; border: 1px solid #eee; border-radius: 10px; padding: 10px 12px; font-size: 13px; color: #444; }
+.sp-score.busy { display: flex; align-items: center; gap: 8px; color: #6d28d9; }
+.sp-score summary { cursor: pointer; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sp-score ul { margin: 6px 0; padding-left: 18px; }
+.sp-note { font-size: 11px; color: #888; }
+.sc { font-size: 11px; border-radius: 999px; padding: 1px 8px; background: #f0f0ec; }
+.sc.good { background: #e3f6ec; color: #0b7a40; } .sc.ok { background: #fff4cc; color: #7a5c00; } .sc.low { background: #ffe4dd; color: #a8321b; }
+.sp-actions { position: sticky; bottom: 0; margin: 14px -16px 0; padding: 12px 16px 16px; background: #fff; border-top: 1px solid #eee;
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.sp-actions .btn { padding: 10px 16px; font-size: 14px; }
+.btn.primary.green { background: #14ae5c; color: #fff; }
+.btn.primary.violet { background: #6d28d9; color: #fff; }
+.sugg-arrow { position: fixed; inset: 0; pointer-events: none; z-index: 2; }
+.sugg-arrow svg { width: 100%; height: 100%; overflow: visible; }
+.sugg-arrow line { stroke: #ffc700; stroke-width: 3; stroke-dasharray: 6 4; }
+.chip button.sugg-btn { background: #ffc700; color: #1e1e1e; font-weight: 700; }
+.chip button.sugg-btn.on { box-shadow: 0 0 0 2px #fff; }
+.chip button.sugg-btn.busy { background: #6d28d9; color: #fff; }
+.chip button.sugg-make { background: #6d28d9; }
 .band { position: fixed; border: 2px dashed #ffc700; background: rgba(255,199,0,.1); border-radius: 4px; pointer-events: none; }
 .band[hidden] { display: none; }
 .band::after { content: attr(data-count); position: absolute; left: 0; top: -24px; background: #ffc700; color: #1e1e1e; font-size: 11px;

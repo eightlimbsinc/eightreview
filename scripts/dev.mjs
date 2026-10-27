@@ -14,10 +14,14 @@ const routes = [];
 for (const file of await fs.readdir(fnDir)) {
   if (!file.endsWith(".mjs")) continue;
   const mod = await import(pathToFileURL(path.join(fnDir, file)));
-  for (const p of [].concat(mod.config.path)) {
+  const name = file.replace(/\.mjs$/, "");
+  // Like Netlify: functions without a configured path live at /.netlify/functions/<name>,
+  // and "-background" functions answer 202 at once and keep running.
+  const background = name.endsWith("-background");
+  for (const p of [].concat(mod.config?.path || `/.netlify/functions/${name}`)) {
     const names = [];
     const re = new RegExp("^" + p.replace(/:(\w+)/g, (_, n) => (names.push(n), "([^/]+)")) + "/?$");
-    routes.push({ re, names, handler: mod.default });
+    routes.push({ re, names, handler: mod.default, background });
   }
 }
 
@@ -37,6 +41,11 @@ http
         headers: req.headers,
         body: ["GET", "HEAD"].includes(req.method) ? undefined : Buffer.concat(chunks),
       });
+      if (r.background) {
+        r.handler(request, { params }).catch((e) => console.error(e));
+        res.writeHead(202).end();
+        return;
+      }
       try {
         const out = await r.handler(request, { params });
         res.writeHead(out.status, Object.fromEntries(out.headers));

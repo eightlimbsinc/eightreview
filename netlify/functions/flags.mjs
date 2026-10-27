@@ -31,6 +31,8 @@ export default handle(async (req) => {
       at: new Date().toISOString(),
       by: sessionUser(req)?.name || "Team",
     };
+    // Keep generated copy suggestions when a section is re-flagged ("Ask again").
+    if (prev?.recommendation) flags[sectionKey].recommendation = prev.recommendation;
     // Hand-picked areas carry an anchor (like comments) so the overlay can find the element again.
     const a = body.anchor || prev?.anchor;
     const cleanAnchor = (x) => ({ selector: clip(x?.selector, 1000), text: clip(x?.text, 300), tag: clip(x?.tag, 20) });
