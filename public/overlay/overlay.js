@@ -10,6 +10,19 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
+  const PROJECT = CFG.project;
+  const SIBLINGS = CFG.pages || [];
+  const pageIndex = SIBLINGS.findIndex((p) => p.id === PAGE);
+  const reviewUrl = (id) => `${API}/r/${id}`;
+  const urlKey = (u) => {
+    try {
+      const x = new URL(u, location.href);
+      return (x.host + x.pathname.replace(/\/+$/, "")).toLowerCase();
+    } catch {
+      return "";
+    }
+  };
+  const siblingByUrl = new Map(SIBLINGS.map((p) => [urlKey(p.url), p]));
 
   const state = {
     comments: [],
@@ -19,6 +32,9 @@
     showResolved: false,
     showSections: true,
     sidebar: false,
+    pagesOpen: false,
+    projectPages: null, // fetched on demand for the page switcher
+    nudged: false,
     openId: null, // open thread id
     draft: null, // { anchor, el, sectionKey, sectionLabel, x, y, ai, copy }
     hoverEl: null,
@@ -158,8 +174,14 @@
       <div class="pop"></div>
     </div>
     <aside class="sidebar" hidden></aside>
+    <div class="pages-panel" hidden></div>
     <div class="toolbar">
       <span class="brand" title="EightReview">8R</span>
+      ${SIBLINGS.length > 1 ? `<span class="pager">
+        <button class="tb arrow" data-act="prev" title="Previous page" ${pageIndex <= 0 ? "disabled" : ""}>‹</button>
+        <button class="tb pg" data-act="pages" title="All pages in this review"><span class="pg-name">${esc(CFG.name || "Page")}</span><span class="pg-n">${pageIndex + 1}/${SIBLINGS.length}</span></button>
+        <button class="tb arrow" data-act="next" title="Next page" ${pageIndex >= SIBLINGS.length - 1 ? "disabled" : ""}>›</button>
+      </span><span class="divider"></span>` : ""}
       <button class="tb mode" data-act="mode" title="Comment (C)">
         <svg viewBox="0 0 24 24"><path d="M4 4h16v12H8l-4 4z"/></svg><span>Comment</span>
       </button>
@@ -264,9 +286,11 @@
     prog.textContent = state.sections.length ? `${reviewed}/${state.sections.length} sections` : "";
     prog.classList.toggle("done", reviewed && reviewed === state.sections.length);
     $(".count").textContent = state.comments.filter((c) => !c.resolved).length;
-    $('[data-act="mode"]').classList.toggle("on", state.mode === "comment");
-    $('[data-act="sections"]').classList.toggle("on", state.showSections);
-    $('[data-act="sidebar"]').classList.toggle("on", state.sidebar);
+    $('.toolbar [data-act="mode"]').classList.toggle("on", state.mode === "comment");
+    $('.toolbar [data-act="sections"]').classList.toggle("on", state.showSections);
+    $('.toolbar [data-act="sidebar"]').classList.toggle("on", state.sidebar);
+    $('.toolbar [data-act="pages"]')?.classList.toggle("on", state.pagesOpen);
+    if (reviewed && reviewed === state.sections.length && !state.nudged && load.done) nudgeNext();
     document.documentElement.classList.toggle("eightreview-commenting", state.mode === "comment");
   }
 
@@ -400,6 +424,55 @@
             .join("")}`,
         )
         .join("")}`;
+  }
+
+  const STATE_LABEL = { approved: "Approved", needs_edits: "Needs edits", in_progress: "In progress", not_started: "Not started" };
+
+  async function renderPagesPanel() {
+    const panel = $(".pages-panel");
+    panel.hidden = !state.pagesOpen;
+    if (!state.pagesOpen) return;
+    const rows = state.projectPages || SIBLINGS;
+    panel.innerHTML = `<div class="pp-h"><b>${esc(PROJECT?.name || "Pages")}</b><span class="sp"></span>
+        ${PROJECT ? `<a class="link" href="${API}/p/${PROJECT.id}">Overview</a>` : ""}</div>
+      <div class="pp-list">${rows
+        .map(
+          (p, i) => `<a class="pp-item${p.id === PAGE ? " cur" : ""}" href="${reviewUrl(p.id)}">
+          <span class="dot ${p.state || ""}" title="${STATE_LABEL[p.state] || ""}"></span>
+          <span class="pp-name">${i + 1}. ${esc(p.name)}</span>
+          ${p.counts?.open ? `<span class="n">${p.counts.open}</span>` : ""}</a>`,
+        )
+        .join("")}</div>`;
+    if (!state.projectPages && PROJECT) {
+      try {
+        state.projectPages = (await api(`/api/projects/${PROJECT.id}`)).pages;
+        renderPagesPanel();
+      } catch {}
+    }
+  }
+
+  function nudgeNext() {
+    state.nudged = true;
+    const next = SIBLINGS[pageIndex + 1];
+    const t = $(".toast");
+    t.innerHTML = next
+      ? `All sections on this page reviewed. <a class="link light" href="${reviewUrl(next.id)}">Next: ${esc(next.name)} →</a>`
+      : `All sections on this page reviewed. ${PROJECT ? `<a class="link light" href="${API}/p/${PROJECT.id}">Back to all pages →</a>` : ""}`;
+    t.hidden = false;
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => (t.hidden = true), 9000);
+  }
+
+  // Tell the server how many sections this page has, so progress can be shown before the client finishes.
+  let registered = "";
+  function registerSections() {
+    const sig = state.sections.map((x) => x.key).join("|");
+    if (!sig || sig === registered) return;
+    registered = sig;
+    api("/api/status", {
+      method: "POST",
+      body: { pageId: PAGE, sections: state.sections.map(({ key, label }) => ({ key, label })) },
+    }).catch(() => {});
   }
 
   // ---------- actions ----------
@@ -552,6 +625,13 @@
         if (state.mode === "comment") toast("Click anywhere on the page to leave a comment");
         else hoverBox.style.display = "none";
         render();
+      } else if (act === "pages") {
+        state.pagesOpen = !state.pagesOpen;
+        renderPagesPanel();
+        render();
+      } else if (act === "prev" || act === "next") {
+        const target = SIBLINGS[pageIndex + (act === "next" ? 1 : -1)];
+        if (target) location.href = reviewUrl(target.id);
       } else if (act === "sections") {
         state.showSections = !state.showSections;
         render();
@@ -594,8 +674,10 @@
         const key = t.closest(".chip").dataset.key;
         const cur = state.statuses[key]?.status;
         if (act === "approve") {
+          const wasNudged = state.nudged;
           await setStatus(key, cur === "approved" ? "pending" : "approved");
-          if (cur !== "approved") toast("Section approved ✓");
+          // Approving the last section shows the "next page" prompt instead.
+          if (cur !== "approved" && wasNudged === state.nudged) toast("Section approved ✓");
         } else {
           if (cur !== "needs_edits") await setStatus(key, "needs_edits");
           const sec = state.sections.find((s) => s.key === key);
@@ -645,11 +727,24 @@
       if (insideUI(e)) return;
       if (state.mode !== "comment") {
         // <base> points at the staging site, so "#section" links would leave the review. Scroll instead.
-        const a = e.target.closest?.('a[href^="#"]');
-        if (a) {
+        const a = e.target.closest?.("a[href]");
+        const href = a?.getAttribute("href") || "";
+        if (href.startsWith("#")) {
           e.preventDefault();
-          const id = decodeURIComponent(a.getAttribute("href").slice(1));
+          const id = decodeURIComponent(href.slice(1));
           (id && document.getElementById(id))?.scrollIntoView({ behavior: "smooth" });
+        } else if (a) {
+          // Links to other pages in this review stay inside the review.
+          const sib = siblingByUrl.get(urlKey(a.href));
+          if (sib && sib.id !== PAGE) {
+            e.preventDefault();
+            location.href = reviewUrl(sib.id);
+          }
+        }
+        if (state.pagesOpen) {
+          state.pagesOpen = false;
+          renderPagesPanel();
+          render();
         }
         if (state.openId && !state.draft) {
           state.openId = null;
@@ -720,6 +815,7 @@
     raf = requestAnimationFrame(() => {
       state.sections = findSections();
       render();
+      if (document.readyState === "complete") registerSections();
     });
   };
   addEventListener("resize", schedule);
@@ -764,6 +860,28 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .tb:hover { background: #333; }
 .tb.on { background: #0d99ff; }
 .count { min-width: 14px; text-align: center; }
+.tb:disabled { opacity: .3; cursor: default; background: transparent; }
+.pager { display: flex; align-items: center; }
+.arrow { padding: 6px 9px; font-size: 18px; line-height: 1; }
+.pg { max-width: 220px; }
+.pg-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-n { color: #999; font-size: 12px; }
+.tb.on .pg-n { color: #e6f4ff; }
+.divider { width: 1px; height: 22px; background: #444; margin: 0 4px; }
+.pages-panel { position: fixed; left: 50%; bottom: 76px; transform: translateX(-50%); width: min(360px, calc(100vw - 24px)); max-height: 60vh;
+  overflow-y: auto; background: #fff; color: #1e1e1e; border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.3); padding: 10px; font-size: 13px; }
+.pages-panel[hidden] { display: none; }
+.pp-h { display: flex; align-items: center; padding: 4px 6px 8px; }
+.pp-item { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 8px; color: #1e1e1e; text-decoration: none; }
+.pp-item:hover { background: #f5f5f5; }
+.pp-item.cur { background: #e8f4ff; font-weight: 600; }
+.pp-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pp-item .n, .chip .n { background: #f24822; color: #fff; border-radius: 9px; padding: 0 6px; font-weight: 700; font-size: 11px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: #d4d4d4; flex: none; }
+.dot.approved { background: #14ae5c; }
+.dot.needs_edits { background: #f5a524; }
+.dot.in_progress { background: #0d99ff; }
+.link.light { color: #7cc4ff; font-size: 13px; text-decoration: none; margin-left: 6px; }
 .progress { padding: 0 10px; color: #bbb; font-size: 12px; white-space: nowrap; }
 .progress.done { color: #4ade80; }
 .progress:empty { display: none; }
@@ -853,7 +971,7 @@ kbd { border: 1px solid #ccc; border-bottom-width: 2px; border-radius: 4px; padd
 .name-card { width: min(360px, 100%); display: grid; gap: 10px; padding: 20px; }
 .name-card h3 { margin: 0; font-size: 17px; }
 .name-card p { margin: 0; color: #555; }
-@media (max-width: 560px) { .tb span:not(.count) { display: none; } .toolbar { bottom: 12px; } }
+@media (max-width: 560px) { .tb span:not(.count):not(.pg-n) { display: none; } .toolbar { bottom: 12px; } .pages-panel { bottom: 68px; } }
 `;
   }
 })();

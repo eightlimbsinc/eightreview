@@ -11,3 +11,9 @@
   for = "/overlay/*"
   [headers.values]
     Cache-Control = "public, max-age=60"
+
+# Client portal: one link listing every page in a project.
+[[redirects]]
+  from = "/p/*"
+  to = "/portal.html"
+  status = 200

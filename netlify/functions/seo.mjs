@@ -50,11 +50,13 @@ export default async (req) => {
   if (!note) return error(400, "Write a note or some copy first");
   const page = body.pageId ? await store().get(`pages/${body.pageId}`) : null;
   if (!page) return error(404, "Page not found");
+  const project = page.projectId ? await store().get(`projects/${page.projectId}`) : null;
+  const keywords = page.keywords || project?.keywords;
 
   const prompt = [
-    `Page: ${page.name}${page.client ? ` (client: ${page.client})` : ""}`,
+    `Page: ${page.name}${project?.client ? ` (client: ${project.client})` : ""}`,
     `URL: ${page.url}`,
-    `Target keywords: ${page.keywords || "none set; infer sensible ones from the page and copy"}`,
+    `Target keywords: ${keywords || "none set; infer sensible ones from the page and copy"}`,
     `Section: ${clip(body.sectionLabel, 200) || "unknown"}`,
     `Element type: ${clip(body.tag, 20) || "text"}`,
     `Current copy on the page:\n"""${clip(body.current, 3000) || "(empty)"}"""`,

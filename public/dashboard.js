@@ -41,55 +41,240 @@ async function copyText(text, btn) {
   }
 }
 
-// ---------- list ----------
-async function renderList() {
-  $("#list-view").hidden = false;
-  $("#detail-view").hidden = true;
-  const box = $("#pages");
-  try {
-    const pages = await api("/api/pages");
-    if (!pages.length) {
-      box.innerHTML = `<p class="muted">No review pages yet. Add your first staging URL above.</p>`;
-      return;
+const app = $("#app");
+const portalLink = (p) => `${location.origin}/p/${p.id}`;
+const STATE = {
+  approved: ["Approved", "green"],
+  needs_edits: ["Needs edits", "amber"],
+  in_progress: ["In progress", "blue"],
+  not_started: ["Not started", ""],
+};
+const stateTag = (st) => {
+  const [l, c] = STATE[st] || STATE.not_started;
+  return `<span class="tag ${c}">${l}</span>`;
+};
+
+// ---------- projects ----------
+async function renderProjects() {
+  app.innerHTML = `<div class="row head"><div><h1>Projects</h1>
+      <p class="muted">One project per client or site. Each gets a single review link listing all of its staging pages.</p></div></div>
+    <form id="new-project" class="card new">
+      <h2>New project</h2>
+      <div class="grid">
+        <label>Project name<input name="name" required placeholder="Blend360 website redesign"></label>
+        <label>Client<input name="client" placeholder="Blend360"></label>
+        <label>Default SEO keywords <small>(optional, used by the AI)</small><input name="keywords" placeholder="enterprise AI consulting, data science services"></label>
+      </div>
+      <div class="row"><span class="sp"></span><button class="btn primary">Create project</button></div>
+      <p class="err" hidden></p>
+    </form>
+    <div id="projects" class="pages"><p class="muted">Loading…</p></div>`;
+
+  $("#new-project").onsubmit = async (e) => {
+    e.preventDefault();
+    const err = $(".err", e.target);
+    try {
+      const p = await api("/api/projects", { method: "POST", body: Object.fromEntries(new FormData(e.target)) });
+      location.hash = `#/project/${p.id}`;
+    } catch (ex) {
+      err.textContent = ex.message;
+      err.hidden = false;
     }
-    box.innerHTML = pages
-      .map(
-        (p) => `<div class="card page">
-        <div>
-          <h3><a href="#/page/${p.id}">${esc(p.name)}</a> ${p.client ? `<span class="tag">${esc(p.client)}</span>` : ""}</h3>
-          <div class="url">${esc(p.url)}</div>
-          <div class="stats">
-            <span class="tag blue">${p.counts.open} open comment${p.counts.open === 1 ? "" : "s"}</span>
-            <span class="tag green">${p.counts.approved} approved</span>
-            <span class="tag amber">${p.counts.needsEdits} need edits</span>
-          </div>
-        </div>
-        <div class="actions">
-          <button class="btn light sm" data-copy="${esc(reviewLink(p))}">Copy client link</button>
-          <a class="btn light sm" href="${esc(reviewLink(p))}" target="_blank" rel="noopener">Open review</a>
-          <a class="btn primary sm" href="#/page/${p.id}">Feedback</a>
-        </div></div>`,
-      )
-      .join("");
+  };
+
+  const box = $("#projects");
+  try {
+    const projects = await api("/api/projects");
+    box.innerHTML = projects.length
+      ? projects
+          .map((p) => {
+            const open = p.pages.reduce((n, x) => n + x.counts.open, 0);
+            const edits = p.pages.filter((x) => x.state === "needs_edits").length;
+            return `<div class="card page">
+          <div><h3><a href="#/project/${p.id}">${esc(p.name)}</a> ${p.client ? `<span class="tag">${esc(p.client)}</span>` : ""}</h3>
+            <div class="stats">
+              <span class="tag">${p.pages.length} page${p.pages.length === 1 ? "" : "s"}</span>
+              <span class="tag green">${p.progress.approved} approved</span>
+              <span class="tag amber">${edits} need edits</span>
+              <span class="tag blue">${open} open comment${open === 1 ? "" : "s"}</span>
+            </div></div>
+          <div class="actions">
+            <button class="btn light sm" data-copy="${esc(portalLink(p))}">Copy client link</button>
+            <a class="btn primary sm" href="#/project/${p.id}">Open</a>
+          </div></div>`;
+          })
+          .join("")
+      : `<p class="muted">No projects yet. Create one above, then add its staging pages.</p>`;
   } catch (e) {
     box.innerHTML = `<p class="err">${esc(e.message)}</p>`;
   }
 }
 
-$("#new-page").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const form = e.target;
-  const err = $(".err", form);
-  err.hidden = true;
+// ---------- one project ----------
+let addTab = "paste";
+
+function parseLines(text) {
+  // One page per line: "https://…" or "Name | https://…" or "Name, https://…"
+  return text
+    .split(/\n+/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => {
+      const m = l.match(/^(.*?)[|,\t]\s*(https?:\/\/\S+)\s*$/);
+      return m ? { name: m[1].trim(), url: m[2] } : { url: l };
+    });
+}
+
+async function addPages(projectId, pages, msgEl) {
+  const { created, skipped } = await api("/api/pages", { method: "POST", body: { projectId, pages } });
+  msgEl.hidden = false;
+  msgEl.className = skipped.length ? "err" : "muted";
+  msgEl.textContent =
+    `Added ${created.length} page${created.length === 1 ? "" : "s"}.` +
+    (skipped.length ? ` Skipped ${skipped.length}: ${skipped.map((x) => `${x.url} (${x.reason})`).join("; ")}` : "");
+  return created.length;
+}
+
+async function renderProject(id) {
+  app.innerHTML = `<p class="muted" style="margin-top:24px">Loading…</p>`;
+  let project;
   try {
-    const page = await api("/api/pages", { method: "POST", body: Object.fromEntries(new FormData(form)) });
-    form.reset();
-    location.hash = `#/page/${page.id}`;
-  } catch (ex) {
-    err.textContent = ex.message;
-    err.hidden = false;
+    project = await api(`/api/projects/${id}`);
+  } catch (e) {
+    app.innerHTML = `<a class="back" href="#/">← Projects</a><p class="err">${esc(e.message)}</p>`;
+    return;
   }
-});
+  const { pages } = project;
+  const firstUrl = pages[0]?.url;
+
+  app.innerHTML = `<a class="back" href="#/">← Projects</a>
+    <div class="row">
+      <div><h1>${esc(project.name)}</h1><div class="muted">${esc(project.client || "")}${project.keywords ? ` · Keywords: ${esc(project.keywords)}` : ""}</div></div>
+      <span class="sp"></span>
+      <button class="btn primary sm" data-copy="${esc(portalLink(project))}">Copy client link</button>
+      <a class="btn light sm" href="${esc(portalLink(project))}" target="_blank" rel="noopener">Preview as client</a>
+      <button class="btn light sm" id="edit-kw">Edit keywords</button>
+      <button class="btn light sm" id="del" style="color:var(--red)">Delete</button>
+    </div>
+    <div class="card progress-card" style="margin-top:16px">
+      <div class="row"><b>${project.progress.approved} of ${pages.length} pages approved</b><span class="sp"></span>
+        <span class="muted" style="font-size:12px">Send the client link: it lists every page below and tracks their progress.</span></div>
+      <div class="bar"><span style="width:${pages.length ? Math.round((project.progress.approved / pages.length) * 100) : 0}%"></span></div>
+    </div>
+
+    <div class="card new bulk">
+      <h2 style="margin:0">Add staging pages</h2>
+      <div class="tabs">
+        <button class="btn light sm ${addTab === "paste" ? "on" : ""}" data-tab="paste">Paste URLs</button>
+        <button class="btn light sm ${addTab === "sitemap" ? "on" : ""}" data-tab="sitemap">Import from sitemap</button>
+      </div>
+      ${addTab === "paste"
+        ? `<form id="paste" class="bulk">
+            <textarea name="urls" rows="5" placeholder="One per line. Optionally name them:\nhttps://blend360new.webflow.io/about-v2\nServices | https://blend360new.webflow.io/services-v2"></textarea>
+            <div class="row"><span class="sp"></span><button class="btn primary">Add pages</button></div></form>`
+        : `<form id="sitemap" class="bulk">
+            <div class="row" style="flex-wrap:nowrap"><input name="url" type="url" required placeholder="https://blend360new.webflow.io" value="${esc(firstUrl ? new URL(firstUrl).origin : "")}">
+            <button class="btn light">Find pages</button></div>
+            <div id="sm-results"></div></form>`}
+      <p class="muted" id="add-msg" hidden></p>
+    </div>
+
+    <h2>Pages</h2>
+    ${pages.length ? `<div class="ptable">${pages
+      .map((p) => `<div class="prow">
+        <span class="dot ${p.state}"></span>
+        <div><div class="name"><a href="#/page/${p.id}">${esc(p.name)}</a></div><div class="url">${esc(p.url)}</div></div>
+        <div class="stats" style="margin:0">${stateTag(p.state)}${p.counts.open ? `<span class="tag blue">${p.counts.open} open</span>` : ""}</div>
+        <div class="actions">
+          <a class="btn light sm" href="/r/${p.id}" target="_blank" rel="noopener">Open</a>
+          <button class="btn light sm" data-rename="${p.id}" data-name="${esc(p.name)}">Rename</button>
+          <a class="btn light sm" href="#/page/${p.id}">Feedback</a>
+          <button class="btn light sm" data-delpage="${p.id}" data-name="${esc(p.name)}" style="color:var(--red)">✕</button>
+        </div></div>`)
+      .join("")}</div>` : `<p class="muted">No pages yet. Paste staging URLs or import the sitemap above.</p>`}`;
+
+  const msg = $("#add-msg");
+  app.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => ((addTab = b.dataset.tab), renderProject(id))));
+
+  $("#paste")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const items = parseLines(e.target.urls.value);
+    if (!items.length) return;
+    try {
+      if (await addPages(id, items, msg)) setTimeout(() => renderProject(id), 900);
+    } catch (ex) {
+      msg.hidden = false;
+      msg.className = "err";
+      msg.textContent = ex.message;
+    }
+  });
+
+  $("#sitemap")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const out = $("#sm-results");
+    out.innerHTML = `<p class="muted">Reading sitemap…</p>`;
+    try {
+      const have = new Set(pages.map((p) => new URL(p.url).pathname.replace(/\/+$/, "")));
+      const { urls } = await api("/api/sitemap", { method: "POST", body: { url: e.target.url.value } });
+      const fresh = urls.filter((u) => !have.has(new URL(u).pathname.replace(/\/+$/, "")));
+      if (!fresh.length) {
+        out.innerHTML = `<p class="muted">Found ${urls.length} URLs; all are already in this project.</p>`;
+        return;
+      }
+      out.innerHTML = `<div class="row" style="margin:6px 0"><span class="muted">${fresh.length} new pages found. Tick the ones to review.</span><span class="sp"></span>
+          <button type="button" class="btn light sm" id="sm-all">Select all</button>
+          <input id="sm-filter" placeholder="Filter, e.g. -v2" style="width:180px"></div>
+        <div class="pick">${fresh.map((u) => `<label><input type="checkbox" value="${esc(u)}"> ${esc(new URL(u).pathname)}</label>`).join("")}</div>
+        <div class="row" style="margin-top:8px"><span class="sp"></span><button type="button" class="btn primary" id="sm-add">Add selected</button></div>`;
+      const boxes = () => [...out.querySelectorAll(".pick label")].filter((l) => l.style.display !== "none").map((l) => l.querySelector("input"));
+      $("#sm-filter").oninput = (ev) => {
+        const q = ev.target.value.toLowerCase();
+        out.querySelectorAll(".pick label").forEach((l) => (l.style.display = l.textContent.toLowerCase().includes(q) ? "" : "none"));
+      };
+      $("#sm-all").onclick = () => {
+        const bs = boxes();
+        const on = !bs.every((b) => b.checked);
+        bs.forEach((b) => (b.checked = on));
+      };
+      $("#sm-add").onclick = async () => {
+        const picked = [...out.querySelectorAll(".pick input:checked")].map((b) => ({ url: b.value }));
+        if (!picked.length) return;
+        if (await addPages(id, picked, msg)) setTimeout(() => renderProject(id), 900);
+      };
+    } catch (ex) {
+      out.innerHTML = `<p class="err">${esc(ex.message)}</p>`;
+    }
+  });
+
+  app.querySelectorAll("[data-rename]").forEach(
+    (b) =>
+      (b.onclick = async () => {
+        const name = prompt("Page name:", b.dataset.name);
+        if (!name) return;
+        await api(`/api/pages/${b.dataset.rename}`, { method: "PATCH", body: { name } });
+        renderProject(id);
+      }),
+  );
+  app.querySelectorAll("[data-delpage]").forEach(
+    (b) =>
+      (b.onclick = async () => {
+        if (!confirm(`Remove "${b.dataset.name}" and its feedback?`)) return;
+        await api(`/api/pages/${b.dataset.delpage}`, { method: "DELETE" });
+        renderProject(id);
+      }),
+  );
+  $("#edit-kw").onclick = async () => {
+    const keywords = prompt("Default SEO keywords for this project (comma separated):", project.keywords || "");
+    if (keywords === null) return;
+    await api(`/api/projects/${id}`, { method: "PATCH", body: { keywords } });
+    renderProject(id);
+  };
+  $("#del").onclick = async () => {
+    if (!confirm(`Delete "${project.name}", all ${pages.length} pages and all feedback? This can't be undone.`)) return;
+    await api(`/api/projects/${id}`, { method: "DELETE" });
+    location.hash = "#/";
+  };
+}
 
 // ---------- detail ----------
 let filter = "open";
@@ -118,9 +303,7 @@ function markdownExport(page, comments, status) {
 }
 
 async function renderDetail(id) {
-  $("#list-view").hidden = true;
-  const view = $("#detail-view");
-  view.hidden = false;
+  const view = app;
   view.innerHTML = `<p class="muted" style="margin-top:24px">Loading…</p>`;
   let page, comments, status;
   try {
@@ -130,7 +313,7 @@ async function renderDetail(id) {
       api(`/api/status?page=${id}`),
     ]);
   } catch (e) {
-    view.innerHTML = `<a class="back" href="#/">← All pages</a><p class="err">${esc(e.message)}</p>`;
+    view.innerHTML = `<a class="back" href="#/">← Projects</a><p class="err">${esc(e.message)}</p>`;
     return;
   }
 
@@ -139,11 +322,12 @@ async function renderDetail(id) {
   );
   const sections = Object.entries(status);
 
-  view.innerHTML = `<a class="back" href="#/">← All pages</a>
+  const back = page.projectId ? `#/project/${page.projectId}` : "#/";
+  view.innerHTML = `<a class="back" href="${back}">← Project</a>
     <div class="row">
       <div><h1>${esc(page.name)}</h1><div class="muted">${esc(page.url)}</div></div>
       <span class="sp"></span>
-      <button class="btn light sm" data-copy="${esc(reviewLink(page))}">Copy client link</button>
+      <button class="btn light sm" data-copy="${esc(reviewLink(page))}">Copy page link</button>
       <a class="btn light sm" href="${esc(reviewLink(page))}" target="_blank" rel="noopener">Open review</a>
       <button class="btn light sm" id="export">Copy as Markdown</button>
       <button class="btn light sm" id="del" style="color:var(--red)">Delete</button>
@@ -185,7 +369,7 @@ async function renderDetail(id) {
   $("#del").onclick = async () => {
     if (!confirm(`Delete "${page.name}" and all its feedback? This can't be undone.`)) return;
     await api(`/api/pages/${id}`, { method: "DELETE" });
-    location.hash = "#/";
+    location.hash = back;
   };
   view.querySelectorAll("[data-filter]").forEach((b) => (b.onclick = () => ((filter = b.dataset.filter), renderDetail(id))));
   view.querySelectorAll("[data-resolve]").forEach(
@@ -216,9 +400,10 @@ $("#token-btn").onclick = () => {
 };
 
 function route() {
-  const m = location.hash.match(/^#\/page\/([\w-]+)/);
-  if (m) renderDetail(m[1]);
-  else renderList();
+  const [, kind, id] = location.hash.match(/^#\/(project|page)\/([\w-]+)/) || [];
+  if (kind === "project") renderProject(id);
+  else if (kind === "page") renderDetail(id);
+  else renderProjects();
 }
 addEventListener("hashchange", route);
 route();

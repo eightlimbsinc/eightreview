@@ -1,6 +1,7 @@
 // Per-section review status (approved / needs edits).
 //   GET  /api/status?page=ID   -> { [sectionKey]: { status, label, author, at } }
 //   POST /api/status           { pageId, sectionKey, label, status, author }
+//   POST /api/status           { pageId, sections: [{ key, label }] }  register the page's sections
 import { store, json, error, readBody, clip } from "./_lib/store.mjs";
 
 const STATUSES = new Set(["approved", "needs_edits", "pending"]);
@@ -15,6 +16,12 @@ export default async (req) => {
   if (req.method !== "POST") return error(405, "Method not allowed");
 
   const body = await readBody(req);
+  if (Array.isArray(body.sections)) {
+    if (!(await s.get(`pages/${body.pageId}`))) return error(404, "Page not found");
+    const list = body.sections.slice(0, 100).map((x) => ({ key: clip(x.key, 120), label: clip(x.label, 200) }));
+    await s.setJSON(`sections/${body.pageId}`, { total: list.length, list, at: new Date().toISOString() });
+    return json({ ok: true });
+  }
   const sectionKey = clip(body.sectionKey, 120);
   if (!body.pageId || !sectionKey) return error(400, "pageId and sectionKey are required");
   if (!STATUSES.has(body.status)) return error(400, "Invalid status");

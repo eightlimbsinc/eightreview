@@ -21,7 +21,7 @@ for (const file of await fs.readdir(fnDir)) {
   }
 }
 
-const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg" };
+const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".xml": "application/xml" };
 
 http
   .createServer(async (req, res) => {
@@ -48,7 +48,8 @@ http
       return;
     }
     // Static files (public/ plus fixtures/ for local testing).
-    const rel = url.pathname === "/" ? "/index.html" : url.pathname;
+    // Mirror netlify.toml redirects.
+    const rel = url.pathname === "/" ? "/index.html" : url.pathname.startsWith("/p/") ? "/portal.html" : url.pathname;
     for (const dir of ["public", "."]) {
       const file = path.join(root, dir, path.normalize(rel));
       if (!file.startsWith(path.join(root, dir))) break;
