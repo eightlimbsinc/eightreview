@@ -13,7 +13,7 @@ h2 { font-size: 16px; margin: 0 0 12px; }
 .muted { color: var(--muted); margin: 0; }
 .top { background: #1e1e1e; color: #fff; padding: 12px 0; }
 .logo { color: #fff; font-weight: 700; display: flex; gap: 8px; align-items: center; }
-.logo img { width: 30px; height: 30px; border-radius: 50%; display: block; }
+.logo img { width: 30px; height: 30px; border-radius: 7px; display: block; }
 .head { margin: 28px 0 16px; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
 .new { margin-bottom: 20px; }

@@ -32,7 +32,7 @@ export default handle(async (req, context) => {
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: #1e1e1e; font: 13px/1.4 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color: #fff; }
   header { height: 48px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid #333; }
-  header .brand { width: 28px; height: 28px; border-radius: 50%; display: block; }
+  header .brand { width: 28px; height: 28px; border-radius: 6px; display: block; }
   header .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   header a { color: #bbb; text-decoration: none; }
   header a:hover { color: #fff; }

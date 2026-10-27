@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.10"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.11"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -1660,7 +1660,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .toolbar { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); display: flex; align-items: center; gap: 4px;
   background: #1e1e1e; color: #fff; padding: 6px; border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.3); font-size: 13px; }
 .brand { border: 0; background: transparent; border-radius: 8px; padding: 4px 6px; display: flex; }
-.brand img { width: 28px; height: 28px; border-radius: 50%; display: block; }
+.brand img { width: 28px; height: 28px; border-radius: 6px; display: block; }
 .brand:hover { background: #333; }
 .brand { margin-right: 4px; }
 .tb { display: flex; align-items: center; gap: 6px; background: transparent; color: #fff; border: 0; border-radius: 9px; padding: 8px 12px; }
