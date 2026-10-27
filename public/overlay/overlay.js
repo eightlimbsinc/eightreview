@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.1"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.2"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === PAGE);
@@ -388,7 +388,11 @@
         chip.innerHTML = `<span class="lbl" title="${esc(s.label)}">${esc(s.label)}</span>
           ${open ? `<span class="n">${open}</span>` : ""}
           ${state.team && flag && st ? `<button data-act="reflag" title="Copy updated? Reset this section to 'Needs your review'">↺ Ask again</button>` : ""}
-          ${state.team ? `<button data-act="flag" class="flag-btn${flag ? " on" : ""}" title="${flag ? "Stop asking the client to review this section" : "Highlight this section for the client to review"}">${flag ? "● Flagged" : "○ Flag for review"}</button>` : ""}
+          ${state.team
+            ? flag
+              ? `<button data-act="flag" class="flag-btn remove" title="Remove this highlight (team only). The client will no longer be asked to review it.">✕ Remove highlight</button>`
+              : `<button data-act="flag" class="flag-btn" title="Highlight this section for the client to review">○ Flag for review</button>`
+            : ""}
           <button data-act="approve" class="${st === "approved" ? "on" : ""}" title="Approve this section">✓ Approve</button>
           <button data-act="edits" class="${st === "needs_edits" ? "on" : ""}" title="Request edits">✎ Needs edits</button>`;
         chipsEl.appendChild(chip);
@@ -986,6 +990,8 @@
         if (flagged) {
           note = prompt("Note for the client (optional):", "Please review this section");
           if (note === null) return;
+        } else if (!confirm(`Remove the highlight on "${sec?.label || "this area"}"? The client will no longer see it. Comments stay.`)) {
+          return;
         }
         const res = await api("/api/flags", {
           method: "POST",
@@ -1259,6 +1265,8 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .hl.approved .hl-tag { color: #fff; }
 .chip.flagged { box-shadow: 0 0 0 2px #ffc700, 0 4px 14px rgba(0,0,0,.2); }
 .chip button.flag-btn.on { background: #ffc700; color: #1e1e1e; }
+.chip button.flag-btn.remove { background: #3a2a2a; color: #ffb4a8; }
+.chip button.flag-btn.remove:hover { background: #f24822; color: #fff; }
 .hover.pick { outline-color: #ffc700; background: rgba(255,199,0,.08); }
 .focus-box.pick { outline: 3px solid #ffc700; background: rgba(255,199,0,.1); }
 .pickbar { position: fixed; left: 50%; bottom: 76px; transform: translateX(-50%); width: min(760px, calc(100vw - 24px)); background: #fff; color: #1e1e1e;
