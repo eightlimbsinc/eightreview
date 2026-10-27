@@ -429,7 +429,7 @@ async function renderSignIn(message = "") {
   $("#who").hidden = true;
   app.innerHTML = `<div class="card signin">
       <h1>Team sign-in</h1>
-      <p class="muted">Sign in with your <b>@${esc(auth.domain)}</b> Google account to manage review projects.</p>
+      <p class="muted">Sign in with your <b>@${esc(auth.domain)}</b> Google account (or a Gmail address the team has added) to manage review projects.</p>
       <div id="gsi"></div>
       <p class="err" ${message ? "" : "hidden"}>${esc(message)}</p>
     </div>`;
@@ -437,7 +437,6 @@ async function renderSignIn(message = "") {
     await loadGoogle();
     google.accounts.id.initialize({
       client_id: auth.googleClientId,
-      hd: auth.domain,
       auto_select: true,
       callback: async ({ credential }) => {
         try {

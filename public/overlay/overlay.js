@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-27.11"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-27.12"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === PAGE);

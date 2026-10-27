@@ -25,6 +25,7 @@ overlay, and serves it from this domain.
    | `STAGING_PASSWORD` | optional | Default Webflow staging password for projects that don't set their own. |
    | `GOOGLE_CLIENT_ID` | recommended | Turns on **Sign in with Google** for the dashboard and team mode (see below). |
    | `ALLOWED_DOMAIN` | optional | Email domain allowed to sign in. Default `8limbsinc.net`. |
+   | `ALLOWED_EMAILS` | optional | Extra individual addresses allowed to sign in, comma separated (e.g. personal `@gmail.com` accounts). |
    | `AUTH_SECRET` | with Google | Any long random string; signs the 30-day session cookie. Changing it signs everyone out. |
    | `ADMIN_TOKEN` | optional | Any secret string. Required to create/edit/delete projects and pages from the dashboard (click **Admin token** on the dashboard to enter it). Clients never need it. |
 3. Deploy. Storage is Netlify Blobs — enabled automatically, nothing to set up.
@@ -35,7 +36,7 @@ overlay, and serves it from this domain.
 2. **Authorized JavaScript origins:** your Netlify URL, e.g. `https://eightreview.netlify.app` (and any custom domain). No redirect URI is needed.
 3. Copy the client ID into `GOOGLE_CLIENT_ID`, set `AUTH_SECRET`, redeploy.
 
-Only verified Google accounts on `ALLOWED_DOMAIN` can sign in. Signed-in members manage projects, open pages in team mode, and their comments and flags carry their Google name. Clients never sign in.
+Only verified Google accounts on `ALLOWED_DOMAIN`, or listed in `ALLOWED_EMAILS`, can sign in (a public domain like gmail.com is never accepted as a whole domain). Signed-in members manage projects, open pages in team mode, and their comments and flags carry their Google name. Clients never sign in.
 4. Open the site, create a project (e.g. "Blend360 website"), add the staging pages, and send the **Copy client link** URL.
 
 ## Local development
