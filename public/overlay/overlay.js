@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.5"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.6"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -619,7 +619,7 @@
       <textarea name="body" rows="3" placeholder="Leave a comment, or type the copy you want here…"></textarea>
       <div class="ai"></div>
       <div class="row">
-        <button type="button" class="btn ghost sm" data-act="seo" title="Rewrite as SEO-friendly copy options">✨ SEO-optimize</button>
+        ${state.team ? `<button type="button" class="btn ghost sm" data-act="seo" title="Rewrite as SEO-friendly copy options (uses AI credit)">✨ SEO-optimize</button>` : ""}
         <span class="sp"></span>
         <button class="btn primary sm">Post</button>
       </div></form>`;

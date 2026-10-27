@@ -2,7 +2,7 @@
 //   POST /api/seo { pageId, note, current, tag, sectionLabel }
 //   -> { interpretation, variants: [{ text, rationale }], tips }
 import Anthropic from "@anthropic-ai/sdk";
-import { store, json, error, readBody, clip, handle } from "./_lib/store.mjs";
+import { store, json, error, readBody, clip, handle, isAdmin } from "./_lib/store.mjs";
 
 const client = new Anthropic(); // reads ANTHROPIC_API_KEY
 
@@ -43,6 +43,8 @@ const SCHEMA = {
 
 export default handle(async (req) => {
   if (req.method !== "POST") return error(405, "Method not allowed");
+  // Every call costs API credit, so only the team can run it (clients approve or edit what the team generated).
+  if (!isAdmin(req)) return error(401, "Team sign-in required");
   if (!process.env.ANTHROPIC_API_KEY) return error(503, "ANTHROPIC_API_KEY is not set on the server");
 
   const body = await readBody(req);
