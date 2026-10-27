@@ -13,7 +13,7 @@ h2 { font-size: 16px; margin: 0 0 12px; }
 .muted { color: var(--muted); margin: 0; }
 .top { background: #1e1e1e; color: #fff; padding: 12px 0; }
 .logo { color: #fff; font-weight: 700; display: flex; gap: 8px; align-items: center; }
-.logo span { color: var(--blue); font-weight: 800; letter-spacing: -.5px; }
+.logo img { width: 30px; height: 30px; border-radius: 50%; display: block; }
 .head { margin: 28px 0 16px; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
 .new { margin-bottom: 20px; }
@@ -85,7 +85,8 @@ textarea { resize: vertical; }
 .dot.in_progress { background: var(--blue); }
 @media (max-width: 640px) { .prow { grid-template-columns: 20px 1fr; } .prow .actions { grid-column: 2; justify-content: flex-start; } }
 .tag.orange { background: #fff4cc; color: #7a5c00; }
-.signin { max-width: 420px; margin: 64px auto; display: grid; gap: 14px; justify-items: start; }
+.signin { max-width: 420px; margin: 64px auto; display: grid; gap: 14px; justify-items: center; text-align: center; }
+.signin .brand-badge { width: 112px; height: 112px; }
 .signin h1 { font-size: 22px; }
 .who { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #ddd; }
 .who img { width: 26px; height: 26px; border-radius: 50%; }

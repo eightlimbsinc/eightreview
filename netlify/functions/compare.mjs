@@ -27,12 +27,12 @@ export default handle(async (req, context) => {
 
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex,nofollow"><title>${esc(title)} · Blank Page ${vIndex + 1}</title>
+<meta name="robots" content="noindex,nofollow"><link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" type="image/png" href="/brand/favicon-32.png"><title>${esc(title)} · Blank Page ${vIndex + 1}</title>
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: #1e1e1e; font: 13px/1.4 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color: #fff; }
   header { height: 48px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid #333; }
-  header .brand { color: #0d99ff; font-weight: 800; }
+  header .brand { width: 28px; height: 28px; border-radius: 50%; display: block; }
   header .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   header a { color: #bbb; text-decoration: none; }
   header a:hover { color: #fff; }
@@ -63,7 +63,7 @@ export default handle(async (req, context) => {
 </style></head>
 <body>
 <header>
-  <span class="brand">8R</span><span class="name">${esc(title)}</span>
+  <img class="brand" src="/brand/mark-64.png" alt="Eight Limbs"><span class="name">${esc(title)}</span>
   ${back ? `<a class="back" href="${back}">All pages</a>` : ""}
   <span class="sp"></span>
   ${versions.length > 1 || canEdit

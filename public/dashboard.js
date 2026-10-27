@@ -447,6 +447,7 @@ function loadGoogle() {
 async function renderSignIn(message = "") {
   $("#who").hidden = true;
   app.innerHTML = `<div class="card signin">
+      <img class="brand-badge" src="/brand/logo-256.png" alt="Eight Limbs">
       <h1>Team sign-in</h1>
       <p class="muted">Sign in with your <b>@${esc(auth.domain)}</b> Google account (or a Gmail address the team has added) to manage review projects.</p>
       <div id="gsi"></div>
