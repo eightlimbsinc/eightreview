@@ -93,3 +93,4 @@ textarea { resize: vertical; }
 @media (max-width: 560px) { .who span { display: none; } }
 .check { display: flex; align-items: center; gap: 8px; font-weight: 400; font-size: 13px; color: var(--ink); }
 .check input { width: auto; }
+.top .ver { font-size: 11px; color: #8a8a8a; }

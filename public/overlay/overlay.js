@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.13"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.14"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -351,7 +351,7 @@
     <aside class="sidebar" hidden></aside>
     <div class="pages-panel" hidden></div>
     <div class="toolbar">
-      <button class="brand" data-act="about" title="EightReview v${VERSION}"><img src="${API}/brand/mark-64.png" alt="Eight Limbs"></button>
+      <button class="brand" data-act="about" title="EightReview v${VERSION}"><img src="${API}/brand/mark-64.png" alt="Eight Limbs"><span class="ver">v${VERSION.slice(5)}</span></button>
       ${SIBLINGS.length > 1 ? `<span class="pager">
         <button class="tb arrow" data-act="prev" title="Previous page" ${pageIndex <= 0 ? "disabled" : ""}>‹</button>
         <button class="tb pg" data-act="pages" title="All pages in this review"><span class="pg-name">${esc(CFG.name || "Page")}</span><span class="pg-n">${pageIndex + 1}/${SIBLINGS.length}</span></button>
@@ -1817,6 +1817,8 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   background: #1e1e1e; color: #fff; padding: 6px; border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.3); font-size: 13px; }
 .brand { border: 0; background: transparent; border-radius: 8px; padding: 4px 6px; display: flex; }
 .brand img { width: 28px; height: 28px; border-radius: 6px; display: block; }
+.brand { align-items: center; gap: 6px; }
+.brand .ver { font-size: 10px; color: #8a8a8a; font-weight: 500; letter-spacing: 0; }
 .brand:hover { background: #333; }
 .brand { margin-right: 4px; }
 .tb { display: flex; align-items: center; gap: 6px; background: transparent; color: #fff; border: 0; border-radius: 9px; padding: 8px 12px; }

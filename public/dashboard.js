@@ -502,6 +502,7 @@ async function start() {
   } catch {
     auth = { admin: true };
   }
+  if (auth.version) $("#ver").textContent = `v${auth.version}`;
   if (auth.googleClientId && !auth.admin) return renderSignIn();
   renderWho();
   route();

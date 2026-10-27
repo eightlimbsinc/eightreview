@@ -4,6 +4,7 @@
 //   POST /api/auth/logout   clears the session cookie
 import { json, error, readBody, handle, isAdmin } from "./_lib/store.mjs";
 import { authConfig, sessionUser, sessionCookie, clearCookie, verifyGoogleCredential } from "./_lib/auth.mjs";
+import { VERSION } from "./_lib/version.mjs";
 
 const withCookie = (res, cookie) => {
   res.headers.append("set-cookie", cookie);
@@ -21,6 +22,7 @@ export default handle(async (req, context) => {
       googleClientId,
       domain,
       tokenMode: Boolean(process.env.ADMIN_TOKEN),
+      version: VERSION,
     });
   }
 
