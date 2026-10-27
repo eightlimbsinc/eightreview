@@ -85,13 +85,8 @@ export async function readBody(req) {
   }
 }
 
-// Optional team-only guard for creating/editing review pages.
-// Set ADMIN_TOKEN in Netlify env vars to turn it on.
-export function isAdmin(req) {
-  const token = process.env.ADMIN_TOKEN;
-  if (!token) return true;
-  return req.headers.get("x-admin-token") === token;
-}
+// Team-only guard (Google sign-in or ADMIN_TOKEN); see auth.mjs.
+export { isAdmin } from "./auth.mjs";
 
 // Trim free text coming from the browser so a single request can't bloat storage.
 export const clip = (value, max = 4000) =>

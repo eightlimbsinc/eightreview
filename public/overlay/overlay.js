@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-27.10"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-27.11"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === PAGE);
@@ -721,8 +721,10 @@
     state.statuses = statuses;
     state.flags = flags.flags || {};
     state.team = TEAM_REQUESTED && flags.admin;
+    // Signed-in team members comment under their Google name.
+    if (state.team && flags.user?.name && getName() !== flags.user.name) setName(flags.user.name);
     state.sections = findSections(); // hand-picked areas come from the flags
-    if (TEAM_REQUESTED && !flags.admin && !load.done) toast("Team mode needs the admin token. Open the dashboard and enter it first.", 6000);
+    if (TEAM_REQUESTED && !flags.admin && !load.done) toast("Team mode needs you to sign in on the dashboard first.", 6000);
     render();
     const deep = location.hash.match(/^#comment-([\w-]+)/);
     if (deep && !load.done) openComment(deep[1]);
@@ -1133,8 +1135,10 @@
     document.head.appendChild(style);
     state.sections = findSections();
     render();
-    load().catch((e) => toast(`Couldn't load comments: ${e.message}`, 5000));
-    if (!getName()) askName();
+    load()
+      .catch((e) => toast(`Couldn't load comments: ${e.message}`, 5000))
+      // Ask for a name only after load, so signed-in team members (named from Google) skip it.
+      .finally(() => !getName() && askName());
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
   else boot();

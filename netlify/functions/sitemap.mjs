@@ -14,7 +14,7 @@ async function fetchText(url, password) {
 
 export default handle(async (req) => {
   if (req.method !== "POST") return error(405, "Method not allowed");
-  if (!isAdmin(req)) return error(401, "Admin token required");
+  if (!isAdmin(req)) return error(401, "Team sign-in required");
   const body = await readBody(req);
   const project = body.projectId ? await store().get(`projects/${body.projectId}`) : null;
   const password = stagingPassword(project);

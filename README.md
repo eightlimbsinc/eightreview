@@ -23,8 +23,19 @@ overlay, and serves it from this domain.
    |---|---|---|
    | `ANTHROPIC_API_KEY` | for ✨ SEO | Claude API key from console.anthropic.com |
    | `STAGING_PASSWORD` | optional | Default Webflow staging password for projects that don't set their own. |
-   | `ADMIN_TOKEN` | recommended | Any secret string. Required to create/edit/delete projects and pages from the dashboard (click **Admin token** on the dashboard to enter it). Clients never need it. |
+   | `GOOGLE_CLIENT_ID` | recommended | Turns on **Sign in with Google** for the dashboard and team mode (see below). |
+   | `ALLOWED_DOMAIN` | optional | Email domain allowed to sign in. Default `8limbsinc.net`. |
+   | `AUTH_SECRET` | with Google | Any long random string; signs the 30-day session cookie. Changing it signs everyone out. |
+   | `ADMIN_TOKEN` | optional | Any secret string. Required to create/edit/delete projects and pages from the dashboard (click **Admin token** on the dashboard to enter it). Clients never need it. |
 3. Deploy. Storage is Netlify Blobs — enabled automatically, nothing to set up.
+
+### Google sign-in (team access)
+
+1. [Google Cloud console](https://console.cloud.google.com/apis/credentials) → **Create credentials → OAuth client ID → Web application**.
+2. **Authorized JavaScript origins:** your Netlify URL, e.g. `https://eightreview.netlify.app` (and any custom domain). No redirect URI is needed.
+3. Copy the client ID into `GOOGLE_CLIENT_ID`, set `AUTH_SECRET`, redeploy.
+
+Only verified Google accounts on `ALLOWED_DOMAIN` can sign in. Signed-in members manage projects, open pages in team mode, and their comments and flags carry their Google name. Clients never sign in.
 4. Open the site, create a project (e.g. "Blend360 website"), add the staging pages, and send the **Copy client link** URL.
 
 ## Local development
@@ -52,6 +63,9 @@ netlify/functions/sitemap.mjs     /api/sitemap       list URLs from a staging si
 netlify/functions/comments.mjs    /api/comments      pins, replies, resolve
 netlify/functions/status.mjs      /api/status        section approvals
 netlify/functions/seo.mjs         /api/seo           Claude copy suggestions
+netlify/functions/flags.mjs       /api/flags         sections/areas flagged for client review (team)
+netlify/functions/auth.mjs        /api/auth/*        Google sign-in, session, sign-out
+netlify/functions/health.mjs      /api/health        version + storage diagnostics
 ```
 
 Notes:

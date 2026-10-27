@@ -40,7 +40,7 @@ export default handle(async (req, context) => {
     return page ? json(page) : error(404, "Page not found");
   }
 
-  if (!isAdmin(req)) return error(401, "Admin token required");
+  if (!isAdmin(req)) return error(401, "Team sign-in required");
 
   if (req.method === "GET") {
     const projectId = new URL(req.url).searchParams.get("project");

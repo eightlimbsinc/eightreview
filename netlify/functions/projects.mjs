@@ -37,7 +37,7 @@ export default handle(async (req, context) => {
     return project ? json(await withPages(project)) : error(404, "Project not found");
   }
 
-  if (!isAdmin(req)) return error(401, "Admin token required");
+  if (!isAdmin(req)) return error(401, "Team sign-in required");
 
   if (req.method === "GET") {
     const projects = await listJSON("projects/");

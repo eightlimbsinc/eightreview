@@ -23,7 +23,10 @@ async function api(path, opts = {}) {
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (res.status === 401) $("#token-btn").hidden = false;
+  if (res.status === 401) {
+    if (auth?.googleClientId) renderSignIn("Your session ended. Sign in again.");
+    else $("#token-btn").hidden = false;
+  }
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data;
 }
@@ -407,11 +410,80 @@ $("#token-btn").onclick = () => {
   route();
 };
 
+// ---------- team sign-in ----------
+let auth = null;
+
+function loadGoogle() {
+  return new Promise((resolve, reject) => {
+    if (window.google?.accounts?.id) return resolve();
+    const s = document.createElement("script");
+    s.src = "https://accounts.google.com/gsi/client";
+    s.async = true;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error("Couldn't load Google sign-in"));
+    document.head.appendChild(s);
+  });
+}
+
+async function renderSignIn(message = "") {
+  $("#who").hidden = true;
+  app.innerHTML = `<div class="card signin">
+      <h1>Team sign-in</h1>
+      <p class="muted">Sign in with your <b>@${esc(auth.domain)}</b> Google account to manage review projects.</p>
+      <div id="gsi"></div>
+      <p class="err" ${message ? "" : "hidden"}>${esc(message)}</p>
+    </div>`;
+  try {
+    await loadGoogle();
+    google.accounts.id.initialize({
+      client_id: auth.googleClientId,
+      hd: auth.domain,
+      auto_select: true,
+      callback: async ({ credential }) => {
+        try {
+          await api("/api/auth/google", { method: "POST", body: { credential } });
+          await start();
+        } catch (e) {
+          renderSignIn(e.message);
+        }
+      },
+    });
+    google.accounts.id.renderButton($("#gsi"), { theme: "filled_black", size: "large", text: "signin_with", shape: "pill" });
+  } catch (e) {
+    $(".signin .err").hidden = false;
+    $(".signin .err").textContent = e.message;
+  }
+}
+
+function renderWho() {
+  const who = $("#who");
+  if (!auth?.user) return (who.hidden = true);
+  who.hidden = false;
+  who.innerHTML = `${auth.user.picture ? `<img src="${esc(auth.user.picture)}" alt="" referrerpolicy="no-referrer">` : ""}
+    <span>${esc(auth.user.email)}</span><button class="btn ghost sm" id="signout">Sign out</button>`;
+  $("#signout").onclick = async () => {
+    await api("/api/auth/logout", { method: "POST" });
+    window.google?.accounts?.id?.disableAutoSelect();
+    await start();
+  };
+}
+
+async function start() {
+  try {
+    auth = await api("/api/auth/me");
+  } catch {
+    auth = { admin: true };
+  }
+  if (auth.googleClientId && !auth.admin) return renderSignIn();
+  renderWho();
+  route();
+}
+
 function route() {
   const [, kind, id] = location.hash.match(/^#\/(project|page)\/([\w-]+)/) || [];
   if (kind === "project") renderProject(id);
   else if (kind === "page") renderDetail(id);
   else renderProjects();
 }
-addEventListener("hashchange", route);
-route();
+addEventListener("hashchange", () => (auth?.googleClientId && !auth.admin ? renderSignIn() : route()));
+start();
