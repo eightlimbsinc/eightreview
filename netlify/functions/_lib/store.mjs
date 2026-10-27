@@ -50,10 +50,13 @@ function blobStore() {
   };
 }
 
-let cached;
+// Don't cache the Blobs client across requests: Netlify hands each invocation a
+// short-lived access token, and a client kept alive in a warm function instance
+// fails later with "Failed to decode token: Token expired".
+let local;
 export function store() {
-  if (!cached) cached = process.env.EIGHTREVIEW_LOCAL ? fileStore() : blobStore();
-  return cached;
+  if (process.env.EIGHTREVIEW_LOCAL) return (local ??= fileStore());
+  return blobStore();
 }
 
 export async function listJSON(prefix) {
