@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-27.5"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-27.6"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === PAGE);
@@ -178,6 +178,8 @@
   ui.innerHTML = `<style>${CSS_TEXT()}</style>
     <div class="layer">
       <div class="hover"></div>
+      <div class="focus-box" hidden></div>
+      <div class="connector" hidden><svg><line/><circle r="4"/></svg></div>
       <div class="chips"></div>
       <div class="pins"></div>
       <div class="pop"></div>
@@ -207,6 +209,8 @@
 
   const layer = $(".layer");
   const hoverBox = $(".hover");
+  const focusBox = $(".focus-box");
+  const connector = $(".connector");
   const pinsEl = $(".pins");
   const chipsEl = $(".chips");
   const popEl = $(".pop");
@@ -303,13 +307,95 @@
     document.documentElement.classList.toggle("eightreview-commenting", state.mode === "comment");
   }
 
-  function placePopover(x, y) {
+  const GAP = 32;
+
+  function hideFocus() {
+    focusBox.hidden = true;
+    connector.hidden = true;
+    popEl.classList.remove("sheet");
+  }
+
+  // Put the comment box beside the element it's about (right, else left, else below),
+  // outline the element, and draw a line from the pin to the box.
+  function placePopover(el, point) {
+    const r = el.getBoundingClientRect();
+    const box = { left: r.left + scrollX, top: r.top + scrollY, right: r.right + scrollX, bottom: r.bottom + scrollY };
+    Object.assign(focusBox.style, {
+      left: `${box.left}px`,
+      top: `${box.top}px`,
+      width: `${r.width}px`,
+      height: `${r.height}px`,
+    });
+    focusBox.hidden = false;
+
+    // Phones: no room beside anything, so use a bottom sheet above the toolbar.
+    if (innerWidth < 700) {
+      popEl.classList.add("sheet");
+      popEl.style.cssText = "";
+      connector.hidden = true;
+      return;
+    }
+    popEl.classList.remove("sheet");
+
     const w = Math.min(340, innerWidth - 24);
-    let left = x + 18;
-    if (left + w > scrollX + innerWidth - 12) left = Math.max(scrollX + 12, x - w - 18);
+    const h = popEl.offsetHeight || 220;
+    const vLeft = scrollX + 12;
+    const vRight = scrollX + innerWidth - 12;
+    const vTop = scrollY + 12;
+    const vBottom = scrollY + innerHeight - 84; // keep clear of the toolbar
+    const clampY = (y) => Math.max(vTop, Math.min(y, Math.max(vTop, vBottom - h)));
+
+    let left, top, side;
+    if (box.right + GAP + w <= vRight) {
+      side = "right";
+      left = box.right + GAP;
+      top = clampY(point.y - 28);
+    } else if (box.left - GAP - w >= vLeft) {
+      side = "left";
+      left = box.left - GAP - w;
+      top = clampY(point.y - 28);
+    } else {
+      side = "below";
+      left = Math.max(vLeft, Math.min(point.x - w / 2, vRight - w));
+      top = box.bottom + GAP;
+      // Element too tall to see the box below it: dock beside the click point on the emptier side.
+      if (top > vBottom - 80) {
+        side = point.x > scrollX + innerWidth / 2 ? "dock-left" : "dock-right";
+        left = side === "dock-left" ? vLeft : vRight - w;
+        top = clampY(point.y - 28);
+      }
+    }
     popEl.style.left = `${left}px`;
-    popEl.style.top = `${Math.max(scrollY + 12, y - 16)}px`;
+    popEl.style.top = `${top}px`;
     popEl.style.width = `${w}px`;
+
+    // Connector: from the pin to the nearest edge of the box.
+    let x2, y2;
+    if (side === "below") {
+      x2 = Math.max(left + 16, Math.min(point.x, left + w - 16));
+      y2 = top;
+    } else {
+      const onRight = side === "right" || side === "dock-right";
+      x2 = onRight ? left : left + w;
+      y2 = Math.max(top + 20, Math.min(point.y, top + h - 20));
+    }
+    const minX = Math.min(point.x, x2) - 6;
+    const minY = Math.min(point.y, y2) - 6;
+    Object.assign(connector.style, {
+      left: `${minX}px`,
+      top: `${minY}px`,
+      width: `${Math.abs(point.x - x2) + 12}px`,
+      height: `${Math.abs(point.y - y2) + 12}px`,
+    });
+    const line = connector.querySelector("line");
+    line.setAttribute("x1", point.x - minX);
+    line.setAttribute("y1", point.y - minY);
+    line.setAttribute("x2", x2 - minX);
+    line.setAttribute("y2", y2 - minY);
+    const dot = connector.querySelector("circle");
+    dot.setAttribute("cx", point.x - minX);
+    dot.setAttribute("cy", point.y - minY);
+    connector.hidden = false;
   }
 
   function copyBlock(copy) {
@@ -328,23 +414,24 @@
     if (!c) {
       popEl.hidden = true;
       popEl.innerHTML = "";
+      hideFocus();
       return;
     }
     const el = resolveAnchor(c.anchor);
     const p = el && docPoint(el, c.anchor.xPct, c.anchor.yPct);
     if (!p) {
       popEl.hidden = true;
+      hideFocus();
       return;
     }
     // Don't clobber a reply the reviewer is typing when a background refresh re-renders.
     const typing =
       popEl.dataset.for === c.id &&
       (popEl.querySelector("textarea")?.value || popEl.contains(ui.activeElement));
-    if (typing) return placePopover(p.x, p.y);
+    if (typing) return placePopover(el, p);
 
     popEl.hidden = false;
     popEl.dataset.for = c.id;
-    placePopover(p.x, p.y);
     popEl.innerHTML = `<div class="card thread">
       <div class="th-h">
         <span>#${c.n}${c.sectionLabel ? ` · ${esc(c.sectionLabel)}` : ""}</span>
@@ -362,13 +449,13 @@
         .join("")}
       <form class="reply"><textarea rows="1" placeholder="Reply…"></textarea><button class="btn primary sm">Reply</button></form>
     </div>`;
+    placePopover(el, p);
   }
 
   function renderDraft() {
     const d = state.draft;
     popEl.hidden = false;
     popEl.dataset.for = "draft";
-    placePopover(d.x, d.y);
     if (popEl.querySelector(".draft")) return updateDraftAI();
     const current = cleanText(d.el).slice(0, 600);
     popEl.innerHTML = `<form class="card draft">
@@ -383,7 +470,7 @@
         <button class="btn primary sm">Post</button>
       </div></form>`;
     const ta = popEl.querySelector("textarea");
-    setTimeout(() => ta.focus(), 0);
+    setTimeout(() => ta.focus({ preventScroll: true }), 0);
     updateDraftAI();
   }
 
@@ -405,6 +492,7 @@
     } else {
       box.innerHTML = d.copy?.proposed ? copyBlock(d.copy) : "";
     }
+    if (d.el.isConnected) placePopover(d.el, { x: d.x, y: d.y });
   }
 
   function renderSidebar() {
@@ -916,6 +1004,13 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 @media (max-width: 700px) { .chip .lbl { display: none; } }
 
 .pop { position: absolute; }
+.pop.sheet { position: fixed; left: 12px !important; right: 12px; bottom: 76px; top: auto !important; width: auto !important; max-height: 60vh; overflow-y: auto; }
+.focus-box { position: absolute; outline: 2px solid #0d99ff; outline-offset: 2px; border-radius: 3px; pointer-events: none; background: rgba(13,153,255,.04); }
+.focus-box[hidden], .connector[hidden] { display: none; }
+.connector { position: absolute; pointer-events: none; }
+.connector svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.connector line { stroke: #0d99ff; stroke-width: 1.5; stroke-dasharray: 4 3; }
+.connector circle { fill: #0d99ff; stroke: #fff; stroke-width: 2; }
 .card { background: #fff; color: #1e1e1e; border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.25), 0 0 0 1px rgba(0,0,0,.06);
   padding: 12px; font-size: 13px; line-height: 1.45; }
 .th-h { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #666; margin: -2px 0 8px; }
