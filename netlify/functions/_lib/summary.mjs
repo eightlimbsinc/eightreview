@@ -3,19 +3,25 @@ import { store, listJSON } from "./store.mjs";
 
 export async function pageSummary(page) {
   const s = store();
-  const [comments, status, sections] = await Promise.all([
+  const [comments, status, sections, flags] = await Promise.all([
     listJSON(`comments/${page.id}/`),
     s.get(`status/${page.id}`),
     s.get(`sections/${page.id}`),
+    s.get(`flags/${page.id}`),
   ]);
-  const st = Object.values(status || {});
+  // When the team has flagged sections, only those count towards the client's progress.
+  const flagged = Object.keys(flags || {});
+  const st = Object.entries(status || {})
+    .filter(([key]) => !flagged.length || flagged.includes(key))
+    .map(([, v]) => v);
   const counts = {
     comments: comments.length,
     open: comments.filter((c) => !c.resolved).length,
     approved: st.filter((x) => x.status === "approved").length,
     needsEdits: st.filter((x) => x.status === "needs_edits").length,
     // Known once the client has opened the page; until then we can't say how many there are.
-    sections: sections?.total ?? null,
+    sections: flagged.length || (sections?.total ?? null),
+    flagged: flagged.length,
   };
   let state = "not_started";
   if (counts.needsEdits || counts.open) state = "needs_edits";

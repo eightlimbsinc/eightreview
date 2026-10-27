@@ -186,9 +186,9 @@ async function renderProject(id) {
       .map((p) => `<div class="prow">
         <span class="dot ${p.state}"></span>
         <div><div class="name"><a href="#/page/${p.id}">${esc(p.name)}</a></div><div class="url">${esc(p.url)}</div></div>
-        <div class="stats" style="margin:0">${stateTag(p.state)}${p.counts.open ? `<span class="tag blue">${p.counts.open} open</span>` : ""}</div>
+        <div class="stats" style="margin:0">${stateTag(p.state)}${p.counts.flagged ? `<span class="tag orange">${p.counts.flagged} flagged</span>` : ""}${p.counts.open ? `<span class="tag blue">${p.counts.open} open</span>` : ""}</div>
         <div class="actions">
-          <a class="btn light sm" href="/r/${p.id}" target="_blank" rel="noopener">Open</a>
+          <a class="btn light sm" href="/r/${p.id}?team=1" target="_blank" rel="noopener" title="Opens in team mode, where you can flag sections for the client">Open</a>
           <button class="btn light sm" data-rename="${p.id}" data-name="${esc(p.name)}">Rename</button>
           <a class="btn light sm" href="#/page/${p.id}">Feedback</a>
           <button class="btn light sm" data-delpage="${p.id}" data-name="${esc(p.name)}" style="color:var(--red)">✕</button>
@@ -336,7 +336,7 @@ async function renderDetail(id) {
       <div><h1>${esc(page.name)}</h1><div class="muted">${esc(page.url)}</div></div>
       <span class="sp"></span>
       <button class="btn light sm" data-copy="${esc(reviewLink(page))}">Copy page link</button>
-      <a class="btn light sm" href="${esc(reviewLink(page))}" target="_blank" rel="noopener">Open review</a>
+      <a class="btn light sm" href="${esc(reviewLink(page))}?team=1" target="_blank" rel="noopener">Open in team mode</a>
       <button class="btn light sm" id="export">Copy as Markdown</button>
       <button class="btn light sm" id="del" style="color:var(--red)">Delete</button>
     </div>

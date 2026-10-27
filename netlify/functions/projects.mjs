@@ -72,7 +72,7 @@ export default handle(async (req, context) => {
     for (const page of await projectPages(id)) {
       const { blobs } = await s.list({ prefix: `comments/${page.id}/` });
       await Promise.all(blobs.map((b) => s.delete(b.key)));
-      await Promise.all([s.delete(`status/${page.id}`), s.delete(`sections/${page.id}`), s.delete(`pages/${page.id}`)]);
+      await Promise.all([s.delete(`status/${page.id}`), s.delete(`sections/${page.id}`), s.delete(`flags/${page.id}`), s.delete(`pages/${page.id}`)]);
     }
     await s.delete(key(id));
     return json({ ok: true });

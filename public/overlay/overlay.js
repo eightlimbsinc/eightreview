@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-27.6"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-27.7"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === PAGE);
@@ -19,6 +19,14 @@
     try {
       const x = new URL(u, location.href);
       return (x.host + x.pathname.replace(/\/+$/, "")).toLowerCase();
+    } catch {
+      return "";
+    }
+  };
+  const TEAM_REQUESTED = new URLSearchParams(location.search).has("team");
+  const adminToken = () => {
+    try {
+      return localStorage.getItem("eightreview:admin") || "";
     } catch {
       return "";
     }
@@ -33,6 +41,8 @@
     showResolved: false,
     showSections: true,
     sidebar: false,
+    flags: {}, // sections the team flagged for review
+    team: false, // team mode: can flag sections
     pagesOpen: false,
     projectPages: null, // fetched on demand for the page switcher
     nudged: false,
@@ -86,7 +96,7 @@
   async function api(path, opts = {}) {
     const res = await fetch(API + path, {
       ...opts,
-      headers: { "content-type": "application/json", ...(opts.headers || {}) },
+      headers: { "content-type": "application/json", "x-admin-token": adminToken(), ...(opts.headers || {}) },
       body: opts.body ? JSON.stringify(opts.body) : undefined,
     });
     const text = await res.text();
@@ -180,6 +190,7 @@
       <div class="hover"></div>
       <div class="focus-box" hidden></div>
       <div class="connector" hidden><svg><line/><circle r="4"/></svg></div>
+      <div class="hls"></div>
       <div class="chips"></div>
       <div class="pins"></div>
       <div class="pop"></div>
@@ -203,6 +214,7 @@
         <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span class="count">0</span>
       </button>
       <span class="progress" title="Sections reviewed"></span>
+      <span class="team-pill" hidden title="You're in team mode: flag the sections the client should review">Team</span>
     </div>
     <div class="toast" hidden></div>
     <div class="modal" hidden></div>`;
@@ -213,6 +225,7 @@
   const connector = $(".connector");
   const pinsEl = $(".pins");
   const chipsEl = $(".chips");
+  const hlsEl = $(".hls");
   const popEl = $(".pop");
   const sidebarEl = $(".sidebar");
 
@@ -250,6 +263,10 @@
   }
   const ensureName = async () => getName() || askName();
 
+  const hasFlags = () => Object.keys(state.flags).length > 0;
+  // Sections the client is asked to review: the flagged ones, or all of them if none are flagged.
+  const reviewTargets = () => (hasFlags() ? state.sections.filter((s) => state.flags[s.key]) : state.sections);
+
   // ---------- render ----------
   function render() {
     const visible = state.comments.filter((c) => state.showResolved || !c.resolved);
@@ -272,19 +289,40 @@
     }
 
     chipsEl.innerHTML = "";
+    hlsEl.innerHTML = "";
     if (state.showSections) {
+      const focus = hasFlags();
       for (const s of state.sections) {
         const r = s.el.getBoundingClientRect();
         if (!r.height) continue;
+        const flag = state.flags[s.key];
+        // Once the team flags sections, the client only sees those.
+        if (focus && !flag && !state.team) continue;
         const st = state.statuses[s.key]?.status;
         const open = state.comments.filter((c) => c.sectionKey === s.key && !c.resolved).length;
+
+        if (flag) {
+          const hl = document.createElement("div");
+          hl.className = `hl ${st || "waiting"}`;
+          Object.assign(hl.style, {
+            left: `${r.left + scrollX}px`,
+            top: `${r.top + scrollY}px`,
+            width: `${r.width}px`,
+            height: `${r.height}px`,
+          });
+          const tag = st === "approved" ? "✓ Approved" : st === "needs_edits" ? "✎ Edits requested" : "● Needs your review";
+          hl.innerHTML = `<span class="hl-tag">${tag}${flag.note && !st ? ` · ${esc(flag.note)}` : ""}</span>`;
+          hlsEl.appendChild(hl);
+        }
+
         const chip = document.createElement("div");
-        chip.className = `chip ${st || ""}`;
+        chip.className = `chip ${st || ""}${flag ? " flagged" : ""}`;
         chip.style.top = `${r.top + scrollY + 12}px`;
         chip.style.left = `${Math.max(12, r.right + scrollX - 12)}px`;
         chip.dataset.key = s.key;
         chip.innerHTML = `<span class="lbl" title="${esc(s.label)}">${esc(s.label)}</span>
           ${open ? `<span class="n">${open}</span>` : ""}
+          ${state.team ? `<button data-act="flag" class="flag-btn${flag ? " on" : ""}" title="${flag ? "Stop asking the client to review this section" : "Highlight this section for the client to review"}">${flag ? "● Flagged" : "○ Flag for review"}</button>` : ""}
           <button data-act="approve" class="${st === "approved" ? "on" : ""}" title="Approve this section">✓ Approve</button>
           <button data-act="edits" class="${st === "needs_edits" ? "on" : ""}" title="Request edits">✎ Needs edits</button>`;
         chipsEl.appendChild(chip);
@@ -294,16 +332,18 @@
     renderPopover();
     if (state.sidebar) renderSidebar();
 
-    const reviewed = state.sections.filter((s) => state.statuses[s.key]).length;
+    const targets = reviewTargets();
+    const reviewed = targets.filter((s) => state.statuses[s.key]).length;
     const prog = $(".progress");
-    prog.textContent = state.sections.length ? `${reviewed}/${state.sections.length} sections` : "";
-    prog.classList.toggle("done", reviewed && reviewed === state.sections.length);
+    prog.textContent = targets.length ? `${reviewed}/${targets.length} ${hasFlags() ? "to review" : "sections"}` : "";
+    prog.classList.toggle("done", reviewed && reviewed === targets.length);
+    $(".team-pill").hidden = !state.team;
     $(".count").textContent = state.comments.filter((c) => !c.resolved).length;
     $('.toolbar [data-act="mode"]').classList.toggle("on", state.mode === "comment");
     $('.toolbar [data-act="sections"]').classList.toggle("on", state.showSections);
     $('.toolbar [data-act="sidebar"]').classList.toggle("on", state.sidebar);
     $('.toolbar [data-act="pages"]')?.classList.toggle("on", state.pagesOpen);
-    if (reviewed && reviewed === state.sections.length && !state.nudged && load.done) nudgeNext();
+    if (reviewed && reviewed === targets.length && !state.nudged && load.done && !state.team) nudgeNext();
     document.documentElement.classList.toggle("eightreview-commenting", state.mode === "comment");
   }
 
@@ -574,12 +614,16 @@
 
   // ---------- actions ----------
   async function load() {
-    const [comments, statuses] = await Promise.all([
+    const [comments, statuses, flags] = await Promise.all([
       api(`/api/comments?page=${PAGE}`),
       api(`/api/status?page=${PAGE}`),
+      api(`/api/flags?page=${PAGE}`).catch(() => ({ flags: {}, admin: false })),
     ]);
     state.comments = comments;
     state.statuses = statuses;
+    state.flags = flags.flags || {};
+    state.team = TEAM_REQUESTED && flags.admin;
+    if (TEAM_REQUESTED && !flags.admin && !load.done) toast("Team mode needs the admin token. Open the dashboard and enter it first.", 6000);
     render();
     const deep = location.hash.match(/^#comment-([\w-]+)/);
     if (deep && !load.done) openComment(deep[1]);
@@ -767,6 +811,23 @@
           rationale: v.rationale,
         };
         updateDraftAI();
+      } else if (act === "flag") {
+        const key = t.closest(".chip").dataset.key;
+        const sec = state.sections.find((x) => x.key === key);
+        const flagged = !state.flags[key];
+        let note = "";
+        if (flagged) {
+          note = prompt("Note for the client (optional):", "Please review this section");
+          if (note === null) return;
+        }
+        const res = await api("/api/flags", {
+          method: "POST",
+          body: { pageId: PAGE, sectionKey: key, label: sec?.label, note: note.trim(), flagged },
+        });
+        state.flags = res.flags;
+        if (flagged) delete state.statuses[key]; // server cleared the old verdict
+        render();
+        toast(flagged ? "Section highlighted for the client" : "Highlight removed");
       } else if (act === "approve" || act === "edits") {
         const key = t.closest(".chip").dataset.key;
         const cur = state.statuses[key]?.status;
@@ -999,6 +1060,19 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .chip button:hover { background: #444; }
 .chip button[data-act=approve].on { background: #14ae5c; }
 .chip button[data-act=edits].on { background: #f5a524; color: #1e1e1e; }
+.hl { position: absolute; pointer-events: none; border-radius: 6px; outline: 3px solid #ff7a1a; outline-offset: -3px;
+  background: rgba(255,122,26,.07); }
+.hl.approved { outline: 2px solid #14ae5c; background: rgba(20,174,92,.04); }
+.hl.needs_edits { outline-color: #f5a524; background: rgba(245,165,36,.06); }
+.hl-tag { position: absolute; left: 12px; top: 12px; background: #ff7a1a; color: #fff; font-size: 12px; font-weight: 700;
+  padding: 4px 10px; border-radius: 6px; max-width: calc(100% - 24px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+.hl.approved .hl-tag { background: #14ae5c; }
+.hl.needs_edits .hl-tag { background: #f5a524; color: #1e1e1e; }
+.chip.flagged { box-shadow: 0 0 0 2px #ff7a1a, 0 4px 14px rgba(0,0,0,.2); }
+.chip button.flag-btn.on { background: #ff7a1a; }
+.team-pill { background: #ff7a1a; color: #fff; font-size: 11px; font-weight: 700; border-radius: 6px; padding: 3px 7px; margin-right: 4px; }
+.team-pill[hidden] { display: none; }
 .chip.approved { box-shadow: 0 0 0 2px #14ae5c, 0 4px 14px rgba(0,0,0,.2); }
 .chip.needs_edits { box-shadow: 0 0 0 2px #f5a524, 0 4px 14px rgba(0,0,0,.2); }
 @media (max-width: 700px) { .chip .lbl { display: none; } }

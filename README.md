@@ -8,6 +8,7 @@ on top of the real site:
 - **Bulk add pages** — paste a list of URLs (optionally `Name | URL`), or import from the staging site's `sitemap.xml` and tick the pages to review.
 - **Comment anywhere** — press `C` (or the Comment button), click any text or image, leave a note. Pins stick to the element, so they stay put across screen sizes. Threads support replies and resolve.
 - **Approve / Needs edits per section** — every `<section>` gets a chip; progress shows in the toolbar.
+- **Flag sections for review** — open a page from the dashboard (**Open** = team mode, `?team=1`) and click **Flag for review** on the sections you want the client to look at, with an optional note ("Updated copy"). The client then sees only those sections, highlighted orange; they turn green when approved and amber when edits are requested. Re-flagging a section after updating copy resets it to "needs your review". With no flags, every section is reviewable.
 - **✨ SEO-optimize** — the client types new copy or an instruction ("pls select 4: …") and Claude returns three SEO-friendly versions that respect the element type (H1, stat label, body…) and the page's target keywords. They pick one; the team sees both the note and the chosen copy.
 - **Team dashboard** at `/` — projects, pages and their progress; per page: section status, comments, copy changes, Markdown export.
 

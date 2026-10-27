@@ -84,3 +84,4 @@ textarea { resize: vertical; }
 .prow .dot { margin-left: 6px; }
 .dot.in_progress { background: var(--blue); }
 @media (max-width: 640px) { .prow { grid-template-columns: 20px 1fr; } .prow .actions { grid-column: 2; justify-content: flex-start; } }
+.tag.orange { background: #ffeddf; color: #b34d00; }

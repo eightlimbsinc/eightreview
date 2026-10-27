@@ -108,7 +108,7 @@ export default handle(async (req, context) => {
   if (req.method === "DELETE") {
     const { blobs } = await s.list({ prefix: `comments/${id}/` });
     await Promise.all(blobs.map((b) => s.delete(b.key)));
-    await Promise.all([s.delete(`status/${id}`), s.delete(`sections/${id}`), s.delete(pageKey(id))]);
+    await Promise.all([s.delete(`status/${id}`), s.delete(`sections/${id}`), s.delete(`flags/${id}`), s.delete(pageKey(id))]);
     return json({ ok: true });
   }
 
