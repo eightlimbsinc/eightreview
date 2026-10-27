@@ -74,6 +74,7 @@ netlify/functions/health.mjs      /api/health        version + storage diagnosti
 ```
 
 Notes:
+- **Flipping cards:** pins and highlights on the face of a card that's currently turned away (3D flip with `backface-visibility: hidden`) are shown faded with ↻ and a "flip the card to see it" note, and return to normal when the card is flipped. `fixtures/flipcards.html` is a test page.
 - Sections are detected from `<section>` tags (Webflow's default). Add `data-review-section="name"` to any element to make it a reviewable section explicitly.
 - Review links are unguessable IDs, not passwords — anyone with the link can comment.
 - Links to pages that aren't in the project open the original staging site (outside the review).

@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.11"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.12"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -197,6 +197,26 @@
     return el;
   }
 
+  // Flipping cards: front and back faces sit in the same spot, and the face turned away is hidden
+  // with backface-visibility. Work out from the element's 3D transforms whether its face is
+  // currently turned away, so a pin on the back isn't shown as if it were on the front.
+  function flipFace(el) {
+    for (let n = el, i = 0; n && n !== document.body && i < 10; n = n.parentElement, i++) {
+      if (getComputedStyle(n).backfaceVisibility === "hidden") return n;
+    }
+    return null;
+  }
+  function facingAway(el) {
+    const face = el && flipFace(el);
+    if (!face) return false;
+    let m = new DOMMatrix();
+    for (let n = face; n && n !== document.documentElement; n = n.parentElement) {
+      const t = getComputedStyle(n).transform;
+      if (t && t !== "none") m = new DOMMatrix(t).multiply(m);
+    }
+    return m.m33 < 0; // the face's normal points away from the viewer
+  }
+
   function docPoint(el, xPct, yPct) {
     const r = el.getBoundingClientRect();
     if (!r.width && !r.height) return null; // hidden at this breakpoint
@@ -379,14 +399,17 @@
       const p = el && docPoint(el, c.anchor.xPct, c.anchor.yPct);
       c._hidden = !p;
       if (!p) continue;
+      c._away = facingAway(el);
       placed.push(c);
       const pin = document.createElement("button");
-      pin.className = `pin${c.resolved ? " resolved" : ""}${state.openId === c.id ? " active" : ""}`;
+      pin.className = `pin${c.resolved ? " resolved" : ""}${state.openId === c.id ? " active" : ""}${c._away ? " away" : ""}`;
       pin.style.left = `${p.x}px`;
       pin.style.top = `${p.y}px`;
       pin.dataset.id = c.id;
-      pin.innerHTML = `${avatar(c.author)}<b>${c.n}</b>`;
-      pin.title = `${c.author}: ${c.body || c.copy?.proposed || ""}`.slice(0, 120);
+      pin.innerHTML = `${avatar(c.author)}<b>${c.n}</b>${c._away ? `<i title="On the other side of this card">↻</i>` : ""}`;
+      pin.title = c._away
+        ? "This comment is on the other side of a flipping card. Flip the card to see it."
+        : `${c.author}: ${c.body || c.copy?.proposed || ""}`.slice(0, 120);
       pinsEl.appendChild(pin);
     }
 
@@ -403,9 +426,10 @@
         const st = state.statuses[s.key]?.status;
         const open = state.comments.filter((c) => c.sectionKey === s.key && !c.resolved).length;
 
+        const away = facingAway(s.members?.[0] || s.el);
         if (flag) {
           const hl = document.createElement("div");
-          hl.className = `hl ${st || "waiting"}`;
+          hl.className = `hl ${st || "waiting"}${away ? " away" : ""}`;
           Object.assign(hl.style, {
             left: `${r.left + scrollX}px`,
             top: `${r.top + scrollY}px`,
@@ -413,7 +437,7 @@
             height: `${r.height}px`,
           });
           const tag = st === "approved" ? "✓ Approved" : st === "needs_edits" ? "✎ Edits requested" : "● Needs your review";
-          hl.innerHTML = `<span class="hl-tag">${tag}${flag.note && !st ? ` · ${esc(flag.note)}` : ""}</span>`;
+          hl.innerHTML = away ? "" : `<span class="hl-tag">${tag}${flag.note && !st ? ` · ${esc(flag.note)}` : ""}</span>`;
           hlsEl.appendChild(hl);
         }
 
@@ -423,6 +447,14 @@
         chip.style.top = `${Math.max(4, r.top + scrollY + (flag ? -38 : 12))}px`;
         chip.style.left = `${Math.max(12, r.right + scrollX - (flag ? 0 : 12))}px`;
         chip.dataset.key = s.key;
+        if (away) {
+          // Turned-away face of a flipping card: a small label instead of the full bar over the front.
+          chip.classList.add("away");
+          chip.innerHTML = `<span class="lbl" title="${esc(s.label)}">↻ On the back of this card · flip it to review</span>
+            ${state.team && flag ? `<button data-act="flag" class="flag-btn remove" title="Remove this highlight">✕</button>` : ""}`;
+          chipsEl.appendChild(chip);
+          continue;
+        }
         chip.innerHTML = `<span class="lbl" title="${esc(s.label)}">${esc(s.label)}</span>
           ${open ? `<span class="n">${open}</span>` : ""}
           ${suggestButton(s.key, flag)}
@@ -593,6 +625,7 @@
         <button class="icon" data-act="resolve" title="${c.resolved ? "Reopen" : "Resolve"}">${c.resolved ? "↺" : "✓"}</button>
         <button class="icon" data-act="close" title="Close">✕</button>
       </div>
+      ${c._away ? `<div class="flip-note">↻ This comment is on the <b>other side</b> of this card. Flip the card (click it, its + button, or hover) to see what it's about.</div>` : ""}
       <div class="msg">${avatar(c.author)}<div><div class="who">${esc(c.author)} <time>${ago(c.createdAt)}</time></div>
         ${c.body ? `<div class="body">${esc(c.body)}</div>` : ""}${copyBlock(c.copy)}</div></div>
       ${c.replies
@@ -669,7 +702,8 @@
               (c) => `<button class="sb-item${c.resolved ? " resolved" : ""}" data-act="goto" data-id="${c.id}">
               ${avatar(c.author)}<div><div class="who">#${c.n} ${esc(c.author)} <time>${ago(c.createdAt)}</time></div>
               <div class="body">${esc((c.body || c.copy?.proposed || "").slice(0, 140))}</div>
-              ${c._hidden ? `<div class="hint">Not visible at this screen size</div>` : ""}
+              ${c._hidden ? `<div class="hint">Hidden right now (another screen size, tab or slide)</div>` : ""}
+              ${c._away ? `<div class="hint">↻ On the other side of a flipping card</div>` : ""}
               ${c.replies.length ? `<div class="hint">${c.replies.length} repl${c.replies.length > 1 ? "ies" : "y"}</div>` : ""}</div></button>`,
             )
             .join("")}`,
@@ -1698,6 +1732,12 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .pin b { font-weight: 700; }
 .pin:hover, .pin.active { box-shadow: 0 0 0 2px #0d99ff, 0 4px 12px rgba(0,0,0,.3); }
 .pin.resolved { opacity: .55; }
+.pin.away { opacity: .6; background: #f3f3f3; border: 1px dashed #999; }
+.pin.away i { font-style: normal; font-weight: 700; color: #666; }
+.flip-note { background: #fff8db; border: 1px solid #ffe08a; color: #6b5300; border-radius: 8px; padding: 8px 10px; font-size: 12px; margin-bottom: 8px; }
+.hl.away { outline-style: dashed; background: transparent; }
+.chip.away { background: rgba(255,248,219,.95); color: #6b5300; box-shadow: 0 0 0 1px #ffe08a, 0 4px 14px rgba(0,0,0,.15); }
+.chip.away .lbl { color: #6b5300; max-width: 280px; }
 .av { width: 22px; height: 22px; border-radius: 50%; color: #fff; display: inline-flex; align-items: center; justify-content: center;
   font-size: 10px; font-weight: 700; flex: none; }
 
