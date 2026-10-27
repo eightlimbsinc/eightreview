@@ -5,6 +5,7 @@
 import { store, error, handle } from "./_lib/store.mjs";
 import { projectPages } from "./_lib/summary.mjs";
 import { fetchStaging, stagingPassword } from "./_lib/staging.mjs";
+import { VERSION } from "./_lib/version.mjs";
 
 const escapeAttr = (s) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 
@@ -54,7 +55,7 @@ export default handle(async (req, context) => {
     `<base href="${escapeAttr(base)}">` +
     `<meta name="robots" content="noindex,nofollow">` +
     `<script>window.__EIGHTREVIEW__=${config.replace(/</g, "\\u003c")}</script>`;
-  const tail = `<script src="${origin}/overlay/overlay.js" defer></script>`;
+  const tail = `<script src="${origin}/overlay/overlay.js?v=${VERSION}" defer></script>`;
 
   html = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (m) => m + head) : head + html;
   html = /<\/body>/i.test(html) ? html.replace(/<\/body>(?![\s\S]*<\/body>)/i, tail + "</body>") : html + tail;

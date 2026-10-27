@@ -10,6 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
+  const VERSION = "2026-10-27.5"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === PAGE);
@@ -184,7 +185,7 @@
     <aside class="sidebar" hidden></aside>
     <div class="pages-panel" hidden></div>
     <div class="toolbar">
-      <span class="brand" title="EightReview">8R</span>
+      <span class="brand" title="EightReview v${VERSION}">8R</span>
       ${SIBLINGS.length > 1 ? `<span class="pager">
         <button class="tb arrow" data-act="prev" title="Previous page" ${pageIndex <= 0 ? "disabled" : ""}>‹</button>
         <button class="tb pg" data-act="pages" title="All pages in this review"><span class="pg-name">${esc(CFG.name || "Page")}</span><span class="pg-n">${pageIndex + 1}/${SIBLINGS.length}</span></button>
