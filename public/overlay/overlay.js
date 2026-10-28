@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.20"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.21"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -923,8 +923,11 @@
   const TAG_NAMES = { h1: "Main heading", h2: "Heading", h3: "Heading", h4: "Small heading", h5: "Small heading", h6: "Small heading",
     p: "Paragraph", li: "List item", a: "Button / link", button: "Button", blockquote: "Quote", figcaption: "Caption", label: "Label" };
   const pending = (r) => r && ["writing", "scoring", "improving"].includes(r.status);
-  // Clients only ever see the finished suggestion, never a draft that's still being scored or improved.
-  const visibleTo = (r) => r?.items?.length && (state.team || !pending(r));
+  // Clients only ever see a finished suggestion that scored 4 out of 5 or more (older ones without the
+  // flag are judged by their saved score), never a draft that's still being scored or improved.
+  const TARGET = 80;
+  const belowTarget = (r) => r.belowTarget ?? (r.evaluation?.section?.overall ?? 100) < TARGET;
+  const visibleTo = (r) => r?.items?.length && (state.team || (!pending(r) && !belowTarget(r)));
 
   function sectionItems(sec) {
     const items = [];
@@ -1099,6 +1102,12 @@
         })
         .join("")}</div>
       ${r.rationale && !editing ? `<p class="sp-why"><b>Why it's better:</b> ${esc(r.rationale)}</p>` : ""}
+      ${state.team && !pending(r) && belowTarget(r)
+        ? `<div class="sp-warn"><b>Hidden from the client:</b> ${r.evaluation?.section?.overall != null
+            ? `the best version scored ${outOf5(r.evaluation.section.overall)} / 5 after several tries, under the 4 / 5 target.`
+            : "it hasn't been scored yet."}
+          Try ↻ Rewrite, ideally with a team note naming the keyword or audience.</div>`
+        : ""}
       ${pending(r)
         ? `<div class="sp-score busy"><span class="spin"></span> ${r.status === "improving" ? "Improving the copy using the rubric's feedback…" : "Checking the score with the Blend360 SEO/AEO rubric…"}</div>`
         : ev
@@ -1942,6 +1951,7 @@ mark.aeo { background: #efe5ff; color: #5b21b6; border-radius: 4px; padding: 0 3
 .sp-score ul { margin: 6px 0; padding-left: 18px; }
 .sp-note { font-size: 11px; color: #888; }
 .stars { color: #f5a623; letter-spacing: 1px; }
+.sp-warn { margin-top: 12px; border-radius: 10px; padding: 10px 12px; font-size: 13px; background: #fff4cc; color: #5c4500; }
 .sc { font-size: 11px; border-radius: 999px; padding: 1px 8px; background: #f0f0ec; }
 .sc.good { background: #e3f6ec; color: #0b7a40; } .sc.ok { background: #fff4cc; color: #7a5c00; } .sc.low { background: #ffe4dd; color: #a8321b; }
 .sp-actions { position: sticky; bottom: 0; margin: 14px -16px 0; padding: 12px 16px 16px; background: #fff; border-top: 1px solid #eee;

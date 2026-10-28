@@ -6,22 +6,24 @@
 // to flags/<pageId>[sectionKey].recommendation, which the overlay polls:
 //   status "writing" -> "scoring" -> ("improving" -> "scoring") -> "ready" | "error"
 // Pipeline: write (high effort) -> proofread -> score with the Blend360 rubric -> while the section
-// score is under REVISE_BELOW, revise using the rubric's feedback -> proofread -> re-score (up to
-// MAX_REVISIONS times), keeping whichever version scored best.
+// score is under TARGET (4 out of 5), revise using the rubric's feedback -> proofread -> re-score
+// (up to MAX_REVISIONS times), keeping whichever version scored best. A suggestion that still misses
+// the target is saved with belowTarget and shown to the team only.
 import Anthropic from "@anthropic-ai/sdk";
 import { store, readBody, isAdmin, clip, stripTags, handle, json } from "./_lib/store.mjs";
 import { RUBRIC_PROMPT, RUBRIC_SCHEMA, RUBRIC_OUTPUT_NOTE, SECTION_MODE_NOTE, ARTICLE_ONLY, reconcile, sectionScores, sectionGaps } from "./_lib/rubric.mjs";
 
 const MODEL = "claude-opus-5-5";
-const REVISE_BELOW = 90; // 4.5 out of 5
-const MAX_REVISIONS = 2;
+const TARGET = 80; // section score out of 100, shown as 4 out of 5
+const MAX_REVISIONS = 4;
 
 const WRITER = `You are Blend360's SEO and AEO (answer-engine optimization) copywriter.
 You rewrite the copy of one section of a web page so it ranks in search and gets quoted by AI answer engines,
 while staying true to Blend360's brand: professional, clear, confident, practical enterprise B2B voice.
 
 Your copy will be scored by Blend360's Content Dashboard Rubric (SEO, AEO, Brand Voice, Content Quality) in
-section mode, and should earn full marks on every check below. The rubric points are in brackets.
+section mode. It must reach a section score of at least 4 out of 5 (80/100); aim for full marks on every
+check below. The rubric points are in brackets.
 SEO
 - [15] The primary keyword, or a close natural variant, is in the section's heading (when it has one).
 - [10] The primary keyword or a close variant is in the first sentence of the body copy.
@@ -233,7 +235,7 @@ export default handle(async (req) => {
     let evaluation = await score(rec);
 
     // Automatic revisions while the section scores under the bar, using the rubric's own feedback.
-    for (let round = 0; !scoreOnly && round < MAX_REVISIONS && (evaluation.section.overall ?? 100) < REVISE_BELOW; round++) {
+    for (let round = 0; !scoreOnly && round < MAX_REVISIONS && (evaluation.section.overall ?? 100) < TARGET; round++) {
       await update(pageId, key, { status: "improving" });
       const feedback = [
         brief,
@@ -241,7 +243,7 @@ export default handle(async (req) => {
         `Your previous draft (same indexes):`,
         ...rec.items.map((x, i) => `[${i}] <${x.tag}> ${x.recommended}`),
         ``,
-        `The Blend360 rubric scored this draft ${evaluation.section.overall}/100 for a page section. Fix these gaps without inventing facts:`,
+        `The Blend360 rubric scored this draft ${(evaluation.section.overall / 20).toFixed(1)} out of 5 for a page section; it must reach at least 4 out of 5. Fix these gaps without inventing facts:`,
         ...evaluation.gaps.map((g) => `- ${g}`),
         ...evaluation.improvements.map((g) => `- ${g}`),
         `Ignore article-only requirements (meta title/description, word count, FAQ, cover image, slug).`,
@@ -254,7 +256,8 @@ export default handle(async (req) => {
       }
     }
     const { gaps, ...stored } = evaluation;
-    await update(pageId, key, { status: "ready", ...(scoreOnly ? {} : rec), evaluation: stored });
+    const belowTarget = (evaluation.section.overall ?? 100) < TARGET;
+    await update(pageId, key, { status: "ready", ...(scoreOnly ? {} : rec), evaluation: stored, belowTarget });
   } catch (e) {
     console.error("[recommend]", e);
     // Keep the API's own reason (e.g. "Schema is too complex…") so the team can see what went wrong.
@@ -266,7 +269,7 @@ export default handle(async (req) => {
     const flags = (await s.get(`flags/${pageId}`)) || {};
     const done = flags[key]?.recommendation?.items?.length;
     // If the copy was written but scoring failed, keep the copy and just skip the score.
-    await update(pageId, key, done ? { status: "ready", evaluation: null, error: `Score unavailable: ${message}` } : { status: "error", error: message });
+    await update(pageId, key, done ? { status: "ready", evaluation: null, belowTarget: true, error: `Score unavailable: ${message}` } : { status: "error", error: message });
   }
   return json({ ok: true });
 });
