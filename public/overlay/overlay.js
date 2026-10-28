@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.17"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.18"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -1032,7 +1032,13 @@
   const keptTerms = (r, original) =>
     [...(r.seo_keywords || []), ...(r.aeo_longtail || [])].filter((t) => original.toLowerCase().includes(t.toLowerCase()));
 
-  const scoreChip = (label, n) => `<span class="sc ${n >= 75 ? "good" : n >= 50 ? "ok" : "low"}"><b>${n}</b> ${label}</span>`;
+  // Scores are stored out of 100 (the rubric's scale) and shown out of 5, which reads more easily.
+  const outOf5 = (n) => (Math.round(n / 2) / 10).toFixed(1);
+  const stars = (n) => {
+    const full = Math.round(n / 20);
+    return `<span class="stars" aria-hidden="true">${"★".repeat(full)}${"☆".repeat(5 - full)}</span>`;
+  };
+  const scoreChip = (label, n) => `<span class="sc ${n >= 75 ? "good" : n >= 50 ? "ok" : "low"}"><b>${outOf5(n)}</b> ${label}</span>`;
 
   function renderSuggestion() {
     const panel = $(".sugg");
@@ -1099,11 +1105,11 @@
           ? (() => {
               const sec = ev.section;
               const head = sec?.overall != null
-                ? `Section score <b>${sec.overall}/100</b> ${["seo", "aeo", "brand_voice", "content_quality"]
+                ? `Section score ${stars(sec.overall)} <b>${outOf5(sec.overall)} / 5</b> ${["seo", "aeo", "brand_voice", "content_quality"]
                     .filter((k) => sec[k] != null)
                     .map((k) => scoreChip({ seo: "SEO", aeo: "AEO", brand_voice: "Voice", content_quality: "Quality" }[k], sec[k]))
                     .join("")}`
-                : `Score <b>${ev.overall}/100</b> ${scoreChip("SEO", ev.seo)}${scoreChip("AEO", ev.aeo)}${scoreChip("Voice", ev.brand_voice)}${scoreChip("Quality", ev.content_quality)}`;
+                : `Score ${stars(ev.overall)} <b>${outOf5(ev.overall)} / 5</b> ${scoreChip("SEO", ev.seo)}${scoreChip("AEO", ev.aeo)}${scoreChip("Voice", ev.brand_voice)}${scoreChip("Quality", ev.content_quality)}`;
               return `<details class="sp-score"><summary>${head}</summary>
               ${ev.summary ? `<p>${esc(ev.summary)}</p>` : ""}
               ${ev.improvements?.length ? `<b>Could be even better:</b><ul>${ev.improvements.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
@@ -1935,6 +1941,7 @@ mark.aeo { background: #efe5ff; color: #5b21b6; border-radius: 4px; padding: 0 3
 .sp-score summary { cursor: pointer; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .sp-score ul { margin: 6px 0; padding-left: 18px; }
 .sp-note { font-size: 11px; color: #888; }
+.stars { color: #f5a623; letter-spacing: 1px; }
 .sc { font-size: 11px; border-radius: 999px; padding: 1px 8px; background: #f0f0ec; }
 .sc.good { background: #e3f6ec; color: #0b7a40; } .sc.ok { background: #fff4cc; color: #7a5c00; } .sc.low { background: #ffe4dd; color: #a8321b; }
 .sp-actions { position: sticky; bottom: 0; margin: 14px -16px 0; padding: 12px 16px 16px; background: #fff; border-top: 1px solid #eee;
