@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.22"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.21"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -1104,7 +1104,7 @@
       ${r.rationale && !editing ? `<p class="sp-why"><b>Why it's better:</b> ${esc(r.rationale)}</p>` : ""}
       ${state.team && !pending(r) && belowTarget(r)
         ? `<div class="sp-warn"><b>Hidden from the client:</b> ${r.evaluation?.section?.overall != null
-            ? `it scored ${outOf5(r.evaluation.section.overall)} / 5, under the 4 / 5 target.`
+            ? `the best version scored ${outOf5(r.evaluation.section.overall)} / 5 after several tries, under the 4 / 5 target.`
             : "it hasn't been scored yet."}
           Try ↻ Rewrite, ideally with a team note naming the keyword or audience.</div>`
         : ""}
