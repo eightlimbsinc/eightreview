@@ -529,12 +529,3 @@ export function sectionScores(rubric, shape) {
   out.overall = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
   return out;
 }
-
-// Criteria a section could have scored better on, for the one automatic revision pass.
-export function sectionGaps(rubric, shape) {
-  return sectionIds
-    .filter((id) => !skipped(id, shape))
-    .map((id) => [id, rubric[id]])
-    .filter(([, c]) => c && c.assessed !== false && c.earned < c.max)
-    .map(([id, c]) => `${id} (${c.earned}/${c.max}): ${c.detail}`);
-}

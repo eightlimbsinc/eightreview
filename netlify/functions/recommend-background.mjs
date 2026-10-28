@@ -4,18 +4,16 @@
 //        { pageId, sectionKey, scoreOnly: true }                  re-score the existing copy
 // Netlify answers 202 straight away (background function, up to 15 min). Progress is written
 // to flags/<pageId>[sectionKey].recommendation, which the overlay polls:
-//   status "writing" -> "scoring" -> ("improving" -> "scoring") -> "ready" | "error"
-// Pipeline: write (high effort) -> proofread -> score with the Blend360 rubric -> while the section
-// score is under TARGET (4 out of 5), revise using the rubric's feedback -> proofread -> re-score
-// (up to MAX_REVISIONS times), keeping whichever version scored best. A suggestion that still misses
-// the target is saved with belowTarget and shown to the team only.
+//   status "writing" -> "scoring" -> "ready" | "error"
+// Pipeline: write (high effort, aiming at TARGET: 4 out of 5) -> proofread -> score with the Blend360
+// rubric, once; no automatic re-runs (the team can ↻ Rewrite). A suggestion under the target is saved
+// with belowTarget and shown to the team only.
 import Anthropic from "@anthropic-ai/sdk";
 import { store, readBody, isAdmin, clip, stripTags, handle, json } from "./_lib/store.mjs";
-import { RUBRIC_PROMPT, RUBRIC_SCHEMA, RUBRIC_OUTPUT_NOTE, SECTION_MODE_NOTE, ARTICLE_ONLY, reconcile, sectionScores, sectionGaps } from "./_lib/rubric.mjs";
+import { RUBRIC_PROMPT, RUBRIC_SCHEMA, RUBRIC_OUTPUT_NOTE, SECTION_MODE_NOTE, ARTICLE_ONLY, reconcile, sectionScores } from "./_lib/rubric.mjs";
 
 const MODEL = "claude-opus-5-5";
 const TARGET = 80; // section score out of 100, shown as 4 out of 5
-const MAX_REVISIONS = 4;
 
 const WRITER = `You are Blend360's SEO and AEO (answer-engine optimization) copywriter.
 You rewrite the copy of one section of a web page so it ranks in search and gets quoted by AI answer engines,
@@ -170,7 +168,7 @@ export default handle(async (req) => {
     ...items.map((it, i) => `[${i}] <${it.tag}> ${it.original}`),
   ].join("\n");
 
-  // Write (or revise) -> proofread -> keep only keywords that really appear in the copy.
+  // Write -> proofread -> keep only keywords that really appear in the copy.
   async function draft(prompt) {
     const written = await ask(WRITER, prompt, WRITER_SCHEMA, "high");
     const byIndex = new Map((written.items || []).map((x) => [x.index, x.recommended]));
@@ -216,7 +214,6 @@ export default handle(async (req) => {
     const shape = { hasHeading: headings.length > 0, hasQuestion: headings.some((x) => x.recommended.trim().endsWith("?")) };
     return {
       section: sectionScores(ev.rubric_criteria, shape),
-      gaps: sectionGaps(ev.rubric_criteria, shape),
       seo: ev.seo.score,
       aeo: ev.aeo.score,
       brand_voice: ev.brand_voice.score,
@@ -230,34 +227,11 @@ export default handle(async (req) => {
   }
 
   try {
-    let rec = scoreOnly ? existing : await draft(brief);
+    const rec = scoreOnly ? existing : await draft(brief);
     if (!scoreOnly && !(await update(pageId, key, { status: "scoring", ...rec }))) return json({ ok: false });
-    let evaluation = await score(rec);
-
-    // Automatic revisions while the section scores under the bar, using the rubric's own feedback.
-    for (let round = 0; !scoreOnly && round < MAX_REVISIONS && (evaluation.section.overall ?? 100) < TARGET; round++) {
-      await update(pageId, key, { status: "improving" });
-      const feedback = [
-        brief,
-        ``,
-        `Your previous draft (same indexes):`,
-        ...rec.items.map((x, i) => `[${i}] <${x.tag}> ${x.recommended}`),
-        ``,
-        `The Blend360 rubric scored this draft ${(evaluation.section.overall / 20).toFixed(1)} out of 5 for a page section; it must reach at least 4 out of 5. Fix these gaps without inventing facts:`,
-        ...evaluation.gaps.map((g) => `- ${g}`),
-        ...evaluation.improvements.map((g) => `- ${g}`),
-        `Ignore article-only requirements (meta title/description, word count, FAQ, cover image, slug).`,
-      ].join("\n");
-      const revised = await draft(feedback);
-      const revisedEval = await score(revised);
-      if ((revisedEval.section.overall ?? 0) >= (evaluation.section.overall ?? 0)) {
-        rec = revised;
-        evaluation = revisedEval;
-      }
-    }
-    const { gaps, ...stored } = evaluation;
+    const evaluation = await score(rec);
     const belowTarget = (evaluation.section.overall ?? 100) < TARGET;
-    await update(pageId, key, { status: "ready", ...(scoreOnly ? {} : rec), evaluation: stored, belowTarget });
+    await update(pageId, key, { status: "ready", ...(scoreOnly ? {} : rec), evaluation, belowTarget });
   } catch (e) {
     console.error("[recommend]", e);
     // Keep the API's own reason (e.g. "Schema is too complex…") so the team can see what went wrong.
