@@ -10,7 +10,7 @@
 // keeping whichever version scored better.
 import Anthropic from "@anthropic-ai/sdk";
 import { store, readBody, isAdmin, clip, handle, json } from "./_lib/store.mjs";
-import { RUBRIC_PROMPT, RUBRIC_SCHEMA, RUBRIC_OUTPUT_NOTE, reconcile, sectionScores, sectionGaps } from "./_lib/rubric.mjs";
+import { RUBRIC_PROMPT, RUBRIC_SCHEMA, RUBRIC_OUTPUT_NOTE, SECTION_MODE_NOTE, ARTICLE_ONLY, reconcile, sectionScores, sectionGaps } from "./_lib/rubric.mjs";
 
 const MODEL = "claude-opus-5-5";
 const REVISE_BELOW = 75;
@@ -176,24 +176,24 @@ export default handle(async (req) => {
   // Score with the Blend360 rubric (independent evaluator), plus the section-level score.
   async function score(rec) {
     const article = [
-      `Content type: Web page section (not a full article). Criteria that need article-only inputs below may be unavailable.`,
+      `Content type: Web page section (not a full article). See SECTION MODE below.`,
+      `Page: ${new URL(page.url).pathname}`,
       `Section title: ${clip(body.label, 200)}`,
       `Primary keyword: ${rec.primary_keyword || "not specified"}`,
       `Recommended long-tail keywords: ${(rec.aeo_longtail || []).join("; ") || "none"}`,
       `Target audience: enterprise decision-makers evaluating Blend360 (not otherwise specified)`,
-      `Meta title: not provided`,
-      `Meta description: not provided`,
-      `URL slug: ${new URL(page.url).pathname}`,
-      `Cover image: not provided`,
       ``,
-      `ARTICLE (HTML):`,
+      `SECTION (HTML):`,
       asHtml(rec.items, "recommended"),
     ].join("\n");
-    const ev = reconcile(await ask(RUBRIC_PROMPT, `${article}\n\n${RUBRIC_OUTPUT_NOTE}`, RUBRIC_SCHEMA));
-    const hasQuestion = rec.items.some((x) => /^h[1-6]$/.test(x.tag) && x.recommended.trim().endsWith("?"));
+    const ev = reconcile(await ask(RUBRIC_PROMPT, `${article}\n\n${SECTION_MODE_NOTE}\n\n${RUBRIC_OUTPUT_NOTE}`, RUBRIC_SCHEMA));
+    // Article-only checks never count against a section, whatever the evaluator returned.
+    for (const id of ARTICLE_ONLY) ev.rubric_criteria[id] = { ...ev.rubric_criteria[id], assessed: false, earned: 0 };
+    const headings = rec.items.filter((x) => /^h[1-6]$/.test(x.tag));
+    const shape = { hasHeading: headings.length > 0, hasQuestion: headings.some((x) => x.recommended.trim().endsWith("?")) };
     return {
-      section: sectionScores(ev.rubric_criteria, { hasQuestion }),
-      gaps: sectionGaps(ev.rubric_criteria, { hasQuestion }),
+      section: sectionScores(ev.rubric_criteria, shape),
+      gaps: sectionGaps(ev.rubric_criteria, shape),
       seo: ev.seo.score,
       aeo: ev.aeo.score,
       brand_voice: ev.brand_voice.score,

@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.16"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.17"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -1107,8 +1107,10 @@
               return `<details class="sp-score"><summary>${head}</summary>
               ${ev.summary ? `<p>${esc(ev.summary)}</p>` : ""}
               ${ev.improvements?.length ? `<b>Could be even better:</b><ul>${ev.improvements.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
-              <p class="sp-note">Scored by AI with the Blend360 SEO/AEO rubric, counting only the checks a page section can meet.
-              Full-article score (also counts meta title, word count, FAQ, cover image): ${ev.overall}/100. A person still reviews everything.</p></details>`;
+              <p class="sp-note">${sec?.overall != null
+                ? "Scored by AI with the Blend360 SEO/AEO rubric in section mode: only the checks a page section can meet count (no meta title, word count, FAQ or images)."
+                : "Scored by AI with the Blend360 SEO/AEO rubric."} A person still reviews everything.</p>
+              ${state.team ? `<button class="btn light sm" data-act="sugg-rescore" title="Score the existing copy again (doesn't rewrite it)">↻ Re-score</button>` : ""}</details>`;
             })()
           : r.error && state.team
             ? `<div class="sp-score">${esc(r.error)} <button class="btn light sm" data-act="sugg-rescore" title="Score the existing copy again (doesn't rewrite it)">↻ Retry score</button></div>`

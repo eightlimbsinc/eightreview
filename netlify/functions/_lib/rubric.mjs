@@ -474,22 +474,50 @@ export function reconcile(result) {
 
 // The rubric is written for full articles: meta title/description, 3+ H2s, word counts, FAQ, lists,
 // cover image and slug can't apply to one page section, so a perfect section still "fails" them.
-// The section score uses only the criteria a section can meet, scaled to 100 per category.
-// aeo_direct_answer only counts when the copy actually has a question heading.
+// Section mode keeps the rubric's text and maxima but tells the evaluator how each check reads for
+// a section, marks the article-only checks as not assessed, and scores only the rest, scaled to 100
+// per category. seo_kw_title needs a heading; aeo_direct_answer needs a question heading.
 const SECTION_CRITERIA = {
   seo: ["seo_kw_title", "seo_kw_intro", "seo_longtail"],
   aeo: ["aeo_direct_answer", "aeo_audience"],
   brand_voice: Object.keys(CRITERIA.brand_voice),
   content_quality: Object.keys(CRITERIA.content_quality),
 };
+const sectionIds = Object.values(SECTION_CRITERIA).flat();
+export const ARTICLE_ONLY = allIds.filter((id) => !sectionIds.includes(id));
 
-export function sectionScores(rubric, { hasQuestion }) {
+export const SECTION_MODE_NOTE = `SECTION MODE
+The supplied content is ONE SECTION of a web page (for example a hero, a stats row, a set of cards,
+a call to action), not a full article. Apply the rubric as follows:
+
+- Return assessed: false and earned: 0 for these article-only criteria: ${ARTICLE_ONLY.join(", ")}.
+  Do not mention them in the summary or improvements.
+- seo_kw_title: the primary keyword, or a close natural variant, is in the section's heading.
+- seo_kw_intro: the keyword or a close variant appears in the first sentence of the body copy.
+- seo_longtail: long-tail phrases are worked in naturally, without stuffing.
+- aeo_direct_answer: only when the heading is a question, the first sentence answers it directly.
+- aeo_audience: it is clear who the section is for and what they get.
+- bv_*: judge as written.
+- q_structure: the section reads clearly for its role: heading, supporting copy, and labels or a
+  call to action where the section has them. Short is fine.
+- q_depth: says enough for its job on the page, concise, without filler. Never penalise length.
+- q_evidence: claims are specific and backed by facts already in the supplied copy. If the section
+  makes no claim that needs proof, give full marks. Never require statistics, citations or sources
+  that were not supplied.
+- q_mechanics: judge as written.
+- Improvements must be things this section's copy can change. Never suggest meta titles or
+  descriptions, word count, more H2s, an FAQ, images, alt text, slugs or new sections.`;
+
+const skipped = (id, { hasHeading, hasQuestion }) =>
+  (id === "seo_kw_title" && !hasHeading) || (id === "aeo_direct_answer" && !hasQuestion);
+
+export function sectionScores(rubric, shape) {
   const out = {};
   for (const [cat, ids] of Object.entries(SECTION_CRITERIA)) {
     let earned = 0;
     let max = 0;
     for (const id of ids) {
-      if (id === "aeo_direct_answer" && !hasQuestion) continue;
+      if (skipped(id, shape)) continue;
       const c = rubric[id];
       if (!c || c.assessed === false) continue;
       earned += c.earned;
@@ -503,10 +531,9 @@ export function sectionScores(rubric, { hasQuestion }) {
 }
 
 // Criteria a section could have scored better on, for the one automatic revision pass.
-export function sectionGaps(rubric, { hasQuestion }) {
-  return Object.values(SECTION_CRITERIA)
-    .flat()
-    .filter((id) => !(id === "aeo_direct_answer" && !hasQuestion))
+export function sectionGaps(rubric, shape) {
+  return sectionIds
+    .filter((id) => !skipped(id, shape))
     .map((id) => [id, rubric[id]])
     .filter(([, c]) => c && c.assessed !== false && c.earned < c.max)
     .map(([id, c]) => `${id} (${c.earned}/${c.max}): ${c.detail}`);
