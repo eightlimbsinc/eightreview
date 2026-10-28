@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.25"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.26"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -1934,7 +1934,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .sp-badge { background: #ffc700; color: #1e1e1e; font-weight: 800; border-radius: 999px; padding: 4px 12px; font-size: 13px; }
 .sp-for { flex: 1; font-weight: 600; color: #555; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .steps { margin: 0 0 10px; padding-left: 20px; color: #333; font-size: 13px; display: grid; gap: 4px; }
-.legend { display: flex; gap: 12px; font-size: 12px; color: #555; margin-bottom: 12px; flex-wrap: wrap; }
+.legend { display: flex; gap: 12px; font-size: 12px; color: #555; margin-bottom: 12px; flex-wrap: wrap; align-items: center; border: 1px solid #e5e5e0; border-radius: 10px; padding: 8px 12px; background: #fcfcfb; }
 mark.seo { background: #d6ebff; color: #0a4d8c; border-radius: 4px; padding: 0 3px; box-shadow: inset 0 -2px 0 #0d99ff; }
 mark.aeo { background: #efe5ff; color: #5b21b6; border-radius: 4px; padding: 0 3px; box-shadow: inset 0 -2px 0 #8b5cf6; }
 .sp-items { display: grid; gap: 10px; }
