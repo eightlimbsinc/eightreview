@@ -5,33 +5,54 @@
 // Netlify answers 202 straight away (background function, up to 15 min). Progress is written
 // to flags/<pageId>[sectionKey].recommendation, which the overlay polls:
 //   status "writing" -> "scoring" -> ("improving" -> "scoring") -> "ready" | "error"
-// Pipeline: write (high effort) -> proofread -> score with the Blend360 rubric -> if the section
-// score is under REVISE_BELOW, one revision using the rubric's feedback -> proofread -> re-score,
-// keeping whichever version scored better.
+// Pipeline: write (high effort) -> proofread -> score with the Blend360 rubric -> while the section
+// score is under REVISE_BELOW, revise using the rubric's feedback -> proofread -> re-score (up to
+// MAX_REVISIONS times), keeping whichever version scored best.
 import Anthropic from "@anthropic-ai/sdk";
 import { store, readBody, isAdmin, clip, stripTags, handle, json } from "./_lib/store.mjs";
 import { RUBRIC_PROMPT, RUBRIC_SCHEMA, RUBRIC_OUTPUT_NOTE, SECTION_MODE_NOTE, ARTICLE_ONLY, reconcile, sectionScores, sectionGaps } from "./_lib/rubric.mjs";
 
 const MODEL = "claude-opus-5-5";
-const REVISE_BELOW = 75;
+const REVISE_BELOW = 90; // 4.5 out of 5
+const MAX_REVISIONS = 2;
 
 const WRITER = `You are Blend360's SEO and AEO (answer-engine optimization) copywriter.
 You rewrite the copy of one section of a web page so it ranks in search and gets quoted by AI answer engines,
 while staying true to Blend360's brand: professional, clear, confident, practical enterprise B2B voice.
 
-Your copy will be scored by Blend360's Content Dashboard Rubric (SEO, AEO, Brand Voice, Content Quality). Write to it:
-- Put the primary keyword in the section's main heading and early in its first paragraph when natural.
-- Where a heading can naturally be a question people ask, phrase it as a question and make the next sentence answer it directly.
-- Use plain, active sentences; define acronyms; spell the company "Blend360".
-- Never invent statistics, client names, awards, product names or claims. Keep every number and fact from the current copy unless the team note says otherwise.
-- Keep each element's role and rough length: headings short; stat labels a few words; buttons 2-4 words, action-led; paragraphs 1-3 sentences unless the original is longer.
+Your copy will be scored by Blend360's Content Dashboard Rubric (SEO, AEO, Brand Voice, Content Quality) in
+section mode, and should earn full marks on every check below. The rubric points are in brackets.
+SEO
+- [15] The primary keyword, or a close natural variant, is in the section's heading (when it has one).
+- [10] The primary keyword or a close variant is in the first sentence of the body copy.
+- [10] At least three AEO long-tail phrases are worked in naturally.
+AEO
+- [10] It is clear who the section is for (for example enterprise leaders or decision-makers) and what they get.
+- [20] If a heading is a question, the very next sentence answers it directly. Where a heading can naturally be
+  a question people ask, consider phrasing it as one.
+Brand voice
+- [30] Professional, clear, confident, practical enterprise B2B tone.
+- [20] Consistent terms, every acronym defined on first use (for example "artificial intelligence (AI)"),
+  the company spelled "Blend360", no invented product or client names, no unexplained jargon.
+- [25] No unsupported claims, exaggeration or promotional superlatives ("leading", "best", "world-class",
+  "unparalleled", "cutting-edge"). Say what Blend360 does, not how great it is.
+- [25] Plain, active sentences, mostly under 25 words, easy for a busy executive to scan.
+Content quality
+- [25] Clear flow for the section's role: heading, supporting copy, then labels or a call to action where it has them.
+- [25] Says enough for its job on the page, without filler.
+- [25] Concrete and specific: name the actual services, capabilities, examples or numbers already in the current
+  copy rather than generic phrases. Never invent statistics, client names, awards, product names or claims; keep
+  every number and fact from the current copy unless the team note says otherwise.
+- [25] Flawless grammar, spelling and punctuation.
+Keep each element's role and rough length: headings short; stat labels a few words; buttons 2-4 words, action-led;
+paragraphs 1-3 sentences unless the original is longer.
 
 Before answering, re-read every sentence you wrote: it must be grammatical and natural when read aloud
 (subject-verb agreement, no doubled or missing words, no awkward keyword insertion). Never force a keyword
 in where it breaks the sentence; rephrase the sentence instead.
 
 Return exactly one recommended text per input element, in the same order (same index).
-Choose 2-5 SEO keywords (short head terms) and 2-5 AEO long-tail phrases (natural question-style or conversational phrases).
+Choose 2-5 SEO keywords (short head terms) and 3-5 AEO long-tail phrases (natural question-style or conversational phrases).
 IMPORTANT: every keyword and long-tail phrase you list must appear word-for-word in your recommended copy, because the
 reviewer sees them highlighted and is told not to change them. Do not list phrases you did not use.`;
 
@@ -211,8 +232,8 @@ export default handle(async (req) => {
     if (!scoreOnly && !(await update(pageId, key, { status: "scoring", ...rec }))) return json({ ok: false });
     let evaluation = await score(rec);
 
-    // One automatic revision when the section scores low, using the rubric's own feedback.
-    if (!scoreOnly && (evaluation.section.overall ?? 100) < REVISE_BELOW) {
+    // Automatic revisions while the section scores under the bar, using the rubric's own feedback.
+    for (let round = 0; !scoreOnly && round < MAX_REVISIONS && (evaluation.section.overall ?? 100) < REVISE_BELOW; round++) {
       await update(pageId, key, { status: "improving" });
       const feedback = [
         brief,
