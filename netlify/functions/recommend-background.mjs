@@ -6,7 +6,7 @@
 // to flags/<pageId>[sectionKey].recommendation, which the overlay polls:
 //   status "writing" -> "scoring" -> ("improving" -> "scoring") -> "ready" | "error"
 // Pipeline: write (high effort) -> proofread -> score with the Blend360 rubric -> while the section
-// score is under TARGET (4 out of 5), revise using the rubric's feedback -> proofread -> re-score
+// score or any of its four category scores is under TARGET (4 out of 5), revise using the rubric's feedback -> proofread -> re-score
 // (up to MAX_REVISIONS times), keeping whichever version scored best. A suggestion that still misses
 // the target is saved with belowTarget and shown to the team only.
 import Anthropic from "@anthropic-ai/sdk";
@@ -14,16 +14,33 @@ import { store, readBody, isAdmin, clip, stripTags, handle, json } from "./_lib/
 import { RUBRIC_PROMPT, RUBRIC_SCHEMA, RUBRIC_OUTPUT_NOTE, SECTION_MODE_NOTE, ARTICLE_ONLY, reconcile, sectionScores, sectionGaps } from "./_lib/rubric.mjs";
 
 const MODEL = "claude-opus-5-5";
-const TARGET = 80; // section score out of 100, shown as 4 out of 5
+const TARGET = 80; // out of 100, shown as 4 out of 5; applies to the total and to each category
 const MAX_REVISIONS = 4;
+const CATEGORY_NAMES = { seo: "SEO", aeo: "AEO", brand_voice: "Brand voice", content_quality: "Content quality" };
+
+// Categories (and the total) scoring under the target; empty when the copy passes.
+const shortfalls = (section) =>
+  Object.entries({ ...CATEGORY_NAMES, overall: "Total" })
+    .filter(([k]) => section[k] != null && section[k] < TARGET)
+    .map(([k, name]) => `${name} ${(section[k] / 20).toFixed(1)}`);
+// Best version: passes first, then the highest lowest-category score, then the highest total.
+const rank = (section) => {
+  const cats = Object.keys(CATEGORY_NAMES).map((k) => section[k]).filter((v) => v != null);
+  return [shortfalls(section).length ? 0 : 1, cats.length ? Math.min(...cats) : 0, section.overall ?? 0];
+};
+const better = (a, b) => {
+  const [x, y] = [rank(a), rank(b)];
+  const i = x.findIndex((v, j) => v !== y[j]);
+  return i === -1 || x[i] > y[i];
+};
 
 const WRITER = `You are Blend360's SEO and AEO (answer-engine optimization) copywriter.
 You rewrite the copy of one section of a web page so it ranks in search and gets quoted by AI answer engines,
 while staying true to Blend360's brand: professional, clear, confident, practical enterprise B2B voice.
 
 Your copy will be scored by Blend360's Content Dashboard Rubric (SEO, AEO, Brand Voice, Content Quality) in
-section mode. It must reach a section score of at least 4 out of 5 (80/100); aim for full marks on every
-check below. The rubric points are in brackets.
+section mode. Every category (SEO, AEO, Brand voice, Content quality) must score at least 4 out of 5
+(80/100), not just the total; aim for full marks on every check below. The rubric points are in brackets.
 SEO
 - [15] The primary keyword, or a close natural variant, is in the section's heading (when it has one).
 - [10] The primary keyword or a close variant is in the first sentence of the body copy.
@@ -235,7 +252,7 @@ export default handle(async (req) => {
     let evaluation = await score(rec);
 
     // Automatic revisions while the section scores under the bar, using the rubric's own feedback.
-    for (let round = 0; !scoreOnly && round < MAX_REVISIONS && (evaluation.section.overall ?? 100) < TARGET; round++) {
+    for (let round = 0; !scoreOnly && round < MAX_REVISIONS && shortfalls(evaluation.section).length; round++) {
       await update(pageId, key, { status: "improving" });
       const feedback = [
         brief,
@@ -243,20 +260,20 @@ export default handle(async (req) => {
         `Your previous draft (same indexes):`,
         ...rec.items.map((x, i) => `[${i}] <${x.tag}> ${x.recommended}`),
         ``,
-        `The Blend360 rubric scored this draft ${(evaluation.section.overall / 20).toFixed(1)} out of 5 for a page section; it must reach at least 4 out of 5. Fix these gaps without inventing facts:`,
+        `The Blend360 rubric scored this page section ${(evaluation.section.overall / 20).toFixed(1)} out of 5. Every category must reach at least 4 out of 5; under target: ${shortfalls(evaluation.section).join(", ")}. Fix these gaps without inventing facts:`,
         ...evaluation.gaps.map((g) => `- ${g}`),
         ...evaluation.improvements.map((g) => `- ${g}`),
         `Ignore article-only requirements (meta title/description, word count, FAQ, cover image, slug).`,
       ].join("\n");
       const revised = await draft(feedback);
       const revisedEval = await score(revised);
-      if ((revisedEval.section.overall ?? 0) >= (evaluation.section.overall ?? 0)) {
+      if (better(revisedEval.section, evaluation.section)) {
         rec = revised;
         evaluation = revisedEval;
       }
     }
     const { gaps, ...stored } = evaluation;
-    const belowTarget = (evaluation.section.overall ?? 100) < TARGET;
+    const belowTarget = shortfalls(evaluation.section).length > 0;
     await update(pageId, key, { status: "ready", ...(scoreOnly ? {} : rec), evaluation: stored, belowTarget });
   } catch (e) {
     console.error("[recommend]", e);
