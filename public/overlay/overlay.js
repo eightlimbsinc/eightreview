@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.26"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.27"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -88,6 +88,7 @@
   const hue = (n = "") => [...n].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 200);
   const avatar = (n) =>
     `<span class="av" style="background:hsl(${hue(n)} 55% 45%)">${esc(initials(n))}</span>`;
+  const when = (iso) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
   const ago = (iso) => {
     const s = (Date.now() - new Date(iso)) / 1000;
     if (s < 60) return "just now";
@@ -259,6 +260,19 @@
     return { x: r.left + scrollX + r.width * xPct, y: r.top + scrollY + r.height * yPct };
   }
 
+  // Right edge of a section's content: full-width Webflow sections hold a narrower container, and the
+  // bar should line up with that rather than hang off the edge of the window.
+  function contentRight(s, r) {
+    let right = 0;
+    for (const root of s.members || [s.el]) {
+      for (const el of root.querySelectorAll(":scope > *, :scope > * > *")) {
+        const b = el.getBoundingClientRect();
+        if (b.width > 40 && b.height > 0 && b.width < r.width - 2) right = Math.max(right, b.right);
+      }
+    }
+    return right || r.right;
+  }
+
   // ---------- sections ----------
   function findSections() {
     let els = [...document.querySelectorAll("section, [data-review-section]")].filter(
@@ -366,8 +380,8 @@
       <button class="tb pick-btn" data-act="pick" title="Team: pick any block on the page to highlight for review" hidden>
         <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" stroke-dasharray="3 3"/></svg><span>Highlight area</span>
       </button>
-      <button class="tb" data-act="sidebar" title="All comments">
-        <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span class="count">0</span>
+      <button class="tb" data-act="sidebar" title="Comment history: every comment and reply, with dates">
+        <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span>History</span><span class="count">0</span>
       </button>
       <span class="progress" title="Sections reviewed"></span>
       <span class="team-pill" hidden title="You're in team mode: flag the sections the client should review">Team</span>
@@ -488,7 +502,7 @@
         chip.className = `chip ${st || ""}${flag ? " flagged" : ""}`;
         // Flagged: sit just above the highlight so the buttons don't cover the copy being reviewed.
         chip.style.top = `${Math.max(4, r.top + scrollY + (flag ? -38 : 12))}px`;
-        chip.style.left = `${Math.max(12, r.right + scrollX - (flag ? 0 : 12))}px`;
+        chip.style.left = `${Math.max(12, Math.min(flag ? r.right : contentRight(s, r) - 12, innerWidth - 16)) + scrollX}px`;
         chip.dataset.key = s.key;
         if (away) {
           // Turned-away face of a flipping card: a small label instead of the full bar over the front.
@@ -741,7 +755,7 @@
       if (!bySection.has(k)) bySection.set(k, []);
       bySection.get(k).push(c);
     }
-    sidebarEl.innerHTML = `<div class="sb-h"><b>Comments</b><span class="sp"></span>
+    sidebarEl.innerHTML = `<div class="sb-h"><b>Comment history</b><span class="sp"></span>
         <label class="tog"><input type="checkbox" data-act="resolved" ${state.showResolved ? "checked" : ""}> Show resolved</label>
         <button class="icon" data-act="sidebar">✕</button></div>
       <div class="sb-name">Reviewing as <b>${esc(getName() || "—")}</b> <button class="link" data-act="rename">change</button></div>
@@ -751,11 +765,15 @@
           ([label, items]) => `<div class="sb-sec">${esc(label)}</div>${items
             .map(
               (c) => `<button class="sb-item${c.resolved ? " resolved" : ""}" data-act="goto" data-id="${c.id}">
-              ${avatar(c.author)}<div><div class="who">#${c.n} ${esc(c.author)} <time>${ago(c.createdAt)}</time></div>
-              <div class="body">${esc((c.body || c.copy?.proposed || "").slice(0, 140))}</div>
+              ${avatar(c.author)}<div class="sb-main"><div class="who">#${c.n} ${esc(c.author)}${c.resolved ? ` <span class="sb-done">Resolved</span>` : ""}</div>
+              <div class="sb-meta"><time title="${ago(c.createdAt)}">${when(c.createdAt)}</time>${c.viewport ? ` · ${c.viewport < 768 ? "📱" : "🖥"} ${c.viewport}px` : ""}</div>
+              ${c.anchor?.text ? `<div class="sb-on">On: “${esc(c.anchor.text.slice(0, 80))}”</div>` : ""}
+              <div class="body">${esc(c.body || "")}${c.copy?.proposed ? `<div class="sb-copy">New copy: ${esc(c.copy.proposed)}</div>` : ""}</div>
               ${c._hidden ? `<div class="hint">Hidden right now (another screen size, tab or slide)</div>` : ""}
               ${c._away ? `<div class="hint">↻ On the other side of a flipping card</div>` : ""}
-              ${c.replies.length ? `<div class="hint">${c.replies.length} repl${c.replies.length > 1 ? "ies" : "y"}</div>` : ""}</div></button>`,
+              ${c.replies
+                .map((r) => `<div class="sb-reply"><b>${esc(r.author)}</b> <time>${when(r.createdAt)}</time><div>${esc(r.body || "")}</div></div>`)
+                .join("")}</div></button>`,
             )
             .join("")}`,
         )
@@ -1854,10 +1872,10 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .brand { border: 0; background: transparent; border-radius: 8px; padding: 4px 6px; display: flex; }
 .brand img { width: 28px; height: 28px; border-radius: 6px; display: block; }
 .brand { align-items: center; gap: 6px; }
-.brand .ver { font-size: 10px; color: #8a8a8a; font-weight: 500; letter-spacing: 0; }
+.brand .ver { font-size: 10px; color: #8a8a8a; font-weight: 500; letter-spacing: 0; white-space: nowrap; }
 .brand:hover { background: #333; }
 .brand { margin-right: 4px; }
-.tb { display: flex; align-items: center; gap: 6px; background: transparent; color: #fff; border: 0; border-radius: 9px; padding: 8px 12px; }
+.tb { display: flex; align-items: center; gap: 6px; background: transparent; color: #fff; border: 0; border-radius: 9px; padding: 8px 12px; white-space: nowrap; }
 .tb:hover { background: #333; }
 .tb.on { background: #0d99ff; }
 .count { min-width: 14px; text-align: center; }
@@ -2051,7 +2069,14 @@ textarea:focus, input:focus { outline: 2px solid #0d99ff; border-color: transpar
 .sb-item { display: flex; gap: 8px; width: 100%; text-align: left; border: 0; background: #fff; border-radius: 8px; padding: 8px; color: #1e1e1e; }
 .sb-item:hover { background: #f5f5f5; }
 .sb-item.resolved { opacity: .55; }
-.sb-item .body { font-size: 12px; color: #444; }
+.sb-item .body { font-size: 12px; color: #444; white-space: pre-wrap; }
+.sb-main { min-width: 0; flex: 1; }
+.sb-meta { font-size: 11px; color: #888; margin: 1px 0 3px; }
+.sb-on { font-size: 11px; color: #666; background: #f5f5f2; border-radius: 6px; padding: 3px 6px; margin-bottom: 4px; }
+.sb-copy { margin-top: 4px; color: #1e1e1e; background: #eef7ff; border-radius: 6px; padding: 3px 6px; }
+.sb-done { font-size: 10px; font-weight: 700; color: #0b7a40; background: #e3f6ec; border-radius: 999px; padding: 0 6px; }
+.sb-reply { margin: 6px 0 0 6px; padding-left: 8px; border-left: 2px solid #e5e5e0; font-size: 12px; color: #444; }
+.sb-reply time { font-size: 11px; color: #888; }
 .hint { font-size: 11px; color: #999; margin-top: 2px; }
 .empty { color: #777; }
 kbd { border: 1px solid #ccc; border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font-size: 11px; }
