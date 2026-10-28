@@ -89,6 +89,9 @@ export async function readBody(req) {
 export { isAdmin } from "./auth.mjs";
 
 // Trim free text coming from the browser so a single request can't bloat storage.
+// The writer sees copy as "[i] <tag> text" and sometimes echoes the tag; plain copy never has markup.
+export const stripTags = (text) => String(text ?? "").replace(/<\/?[a-z][a-z0-9]*\s*\/?>/gi, "").replace(/\s{2,}/g, " ").trim();
+
 export const clip = (value, max = 4000) =>
   typeof value === "string" ? value.slice(0, max) : "";
 

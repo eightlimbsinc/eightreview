@@ -9,7 +9,7 @@
 // score is under REVISE_BELOW, one revision using the rubric's feedback -> proofread -> re-score,
 // keeping whichever version scored better.
 import Anthropic from "@anthropic-ai/sdk";
-import { store, readBody, isAdmin, clip, handle, json } from "./_lib/store.mjs";
+import { store, readBody, isAdmin, clip, stripTags, handle, json } from "./_lib/store.mjs";
 import { RUBRIC_PROMPT, RUBRIC_SCHEMA, RUBRIC_OUTPUT_NOTE, SECTION_MODE_NOTE, ARTICLE_ONLY, reconcile, sectionScores, sectionGaps } from "./_lib/rubric.mjs";
 
 const MODEL = "claude-opus-5-5";
@@ -151,7 +151,7 @@ export default handle(async (req) => {
   async function draft(prompt) {
     const written = await ask(WRITER, prompt, WRITER_SCHEMA, "high");
     const byIndex = new Map((written.items || []).map((x) => [x.index, x.recommended]));
-    let out = items.map((it, i) => ({ ...it, recommended: clip(byIndex.get(i) ?? it.original, 1200) }));
+    let out = items.map((it, i) => ({ ...it, recommended: clip(stripTags(byIndex.get(i) ?? it.original), 1200) }));
     const protectedTerms = [...(written.seo_keywords || []), ...(written.aeo_longtail || [])];
     const proof = await ask(
       PROOFREADER,
@@ -160,7 +160,7 @@ export default handle(async (req) => {
       "low",
     );
     const fixed = new Map((proof.items || []).map((x) => [x.index, x.text]));
-    out = out.map((x, i) => ({ ...x, recommended: clip(fixed.get(i) || x.recommended, 1200) }));
+    out = out.map((x, i) => ({ ...x, recommended: clip(stripTags(fixed.get(i)) || x.recommended, 1200) }));
     const all = out.map((x) => x.recommended.toLowerCase()).join(" \n ");
     // Only keep phrases that really appear, so every highlight is real.
     const used = (list) => [...new Set((list || []).map((k) => String(k).trim()).filter((k) => k && all.includes(k.toLowerCase())))].slice(0, 8);

@@ -3,7 +3,7 @@
 //   POST /api/flags           { pageId, sectionKey, label, note, flagged, anchor?, members? }   (admin)
 //   (anchor = { selector, text, tag } for areas the team picked by hand rather than detected sections)
 // Re-flagging a section clears the client's earlier verdict so it goes back to "waiting".
-import { store, json, error, readBody, isAdmin, clip, handle } from "./_lib/store.mjs";
+import { store, json, error, readBody, isAdmin, clip, stripTags, handle } from "./_lib/store.mjs";
 import { sessionUser } from "./_lib/auth.mjs";
 
 export default handle(async (req) => {
@@ -12,7 +12,12 @@ export default handle(async (req) => {
     const pageId = new URL(req.url).searchParams.get("page");
     if (!pageId) return error(400, "page is required");
     const admin = isAdmin(req);
-    return json({ flags: (await s.get(`flags/${pageId}`)) || {}, admin, user: admin ? sessionUser(req) : null });
+    const flags = (await s.get(`flags/${pageId}`)) || {};
+    // Suggestions written before tags were stripped on save can still start with "<div>".
+    for (const f of Object.values(flags)) {
+      for (const it of f.recommendation?.items || []) it.recommended = stripTags(it.recommended);
+    }
+    return json({ flags, admin, user: admin ? sessionUser(req) : null });
   }
   if (req.method !== "POST") return error(405, "Method not allowed");
   if (!isAdmin(req)) return error(401, "Team sign-in required");
