@@ -3,10 +3,9 @@ import { store, listJSON } from "./store.mjs";
 
 export async function pageSummary(page) {
   const s = store();
-  const [comments, status, sections, flags] = await Promise.all([
+  const [comments, status, flags] = await Promise.all([
     listJSON(`comments/${page.id}/`),
     s.get(`status/${page.id}`),
-    s.get(`sections/${page.id}`),
     s.get(`flags/${page.id}`),
   ]);
   // When the team has flagged sections, only those count towards the client's progress.
@@ -19,8 +18,8 @@ export async function pageSummary(page) {
     open: comments.filter((c) => !c.resolved).length,
     approved: st.filter((x) => x.status === "approved").length,
     needsEdits: st.filter((x) => x.status === "needs_edits").length,
-    // Known once the client has opened the page; until then we can't say how many there are.
-    sections: flagged.length || (sections?.total ?? null),
+    // Only highlighted sections are put to the client (detected sections no longer get a bar).
+    sections: flagged.length || null,
     flagged: flagged.length,
   };
   let state = "not_started";

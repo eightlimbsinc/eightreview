@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.27"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.28"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -442,9 +442,8 @@
   }
   const ensureName = async () => getName() || askName();
 
-  const hasFlags = () => Object.keys(state.flags).length > 0;
   // Sections the client is asked to review: the flagged ones, or all of them if none are flagged.
-  const reviewTargets = () => (hasFlags() ? state.sections.filter((s) => state.flags[s.key]) : state.sections);
+  const reviewTargets = () => state.sections.filter((s) => state.flags[s.key]);
 
   // ---------- render ----------
   function render() {
@@ -473,14 +472,14 @@
     chipsEl.innerHTML = "";
     hlsEl.innerHTML = "";
     if (state.showSections) {
-      const focus = hasFlags();
       for (const s of state.sections) {
         const r = rectOf(s);
         if (!r.height) continue;
         const flag = state.flags[s.key];
-        // Once the team flags sections, the client only sees those.
-        if (focus && !flag && !state.team) continue;
         const st = state.statuses[s.key]?.status;
+        // Only highlighted sections get a bar (the team adds them with Highlight area); a detected
+        // section someone already approved or sent back keeps its bar so that answer stays visible.
+        if (!flag && !st) continue;
         const open = state.comments.filter((c) => c.sectionKey === s.key && !c.resolved).length;
 
         const away = facingAway(s.members?.[0] || s.el);
@@ -534,7 +533,7 @@
     const targets = reviewTargets();
     const reviewed = targets.filter((s) => state.statuses[s.key]).length;
     const prog = $(".progress");
-    prog.textContent = targets.length ? `${reviewed}/${targets.length} ${hasFlags() ? "to review" : "sections"}` : "";
+    prog.textContent = targets.length ? `${reviewed}/${targets.length} to review` : "";
     prog.classList.toggle("done", reviewed && reviewed === targets.length);
     $(".team-pill").hidden = !state.team;
     const pickBtn = $('.toolbar [data-act="pick"]');
