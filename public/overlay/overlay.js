@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.24"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.25"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -1099,8 +1099,9 @@
               <textarea class="sp-edit" data-i="${i}" rows="${Math.min(6, Math.ceil(val.length / 42) + 1)}">${esc(val)}</textarea>
               <div class="sp-warn" ${missing.length ? "" : "hidden"}>⚠ Try to keep: ${missing.map((t) => `“${esc(t)}”`).join(", ")}</div></div>`;
           }
-          return `<div class="sp-item"><div class="sp-tag">${name}</div><div class="sp-text">${markText(it.recommended, r)}</div>
-            ${it.original && it.original !== it.recommended ? `<details><summary>Current copy</summary><div class="sp-old">${esc(it.original)}</div></details>` : ""}</div>`;
+          return `<div class="sp-item"><div class="sp-tag">${name}</div>
+            ${it.original && it.original !== it.recommended ? `<details><summary>Current copy</summary><div class="sp-old">${esc(it.original)}</div></details>` : ""}
+            <div class="sp-text">${markText(it.recommended, r)}</div></div>`;
         })
         .join("")}</div>
       ${r.rationale && !editing ? `<p class="sp-why"><b>Why it's better:</b> ${esc(r.rationale)}</p>` : ""}
@@ -1940,7 +1941,8 @@ mark.aeo { background: #efe5ff; color: #5b21b6; border-radius: 4px; padding: 0 3
 .sp-item { border: 1px solid #eee; border-radius: 10px; padding: 10px 12px; background: #fcfcfb; }
 .sp-tag { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: #999; margin-bottom: 4px; }
 .sp-text { white-space: pre-wrap; font-size: 15px; }
-.sp-item details { margin-top: 6px; font-size: 12px; color: #777; }
+.sp-item details { margin-bottom: 6px; font-size: 12px; color: #777; }
+.sp-old { padding-bottom: 6px; border-bottom: 1px dashed #e5e5e0; }
 .sp-old { white-space: pre-wrap; margin-top: 4px; }
 .sp-edit { font-size: 14px; line-height: 1.5; }
 .sp-warn { margin-top: 4px; font-size: 12px; color: #b45309; }
