@@ -1,6 +1,6 @@
 # EightReview client showcase (Remotion)
 
-A ~53-second, 1920×1080 walkthrough video for clients: open the review link → look for
+A ~60-second, 1920×1080 narrated walkthrough video for clients: open the review link → look for
 yellow boxes → comment → approve → suggested copy → blank layouts.
 
 ## Preview and edit
@@ -21,5 +21,13 @@ the font are in `src/theme.ts`.
 ```bash
 npx remotion render EightReviewShowcase out/eightreview-client-guide.mp4
 ```
+
+## Voiceover
+
+Each scene plays its narration line from `public/voiceover/*.mp3` (script in
+`voiceover/lines.json`, timing in `src/Showcase.tsx`). The voice is Kokoro TTS
+(`af_heart`), generated offline with `voiceover/generate.py`; to swap in a recorded
+or ElevenLabs voice, drop new MP3s with the same names and adjust scene lengths if a
+line gets longer.
 
 The Inter font is bundled in `public/fonts`, so rendering doesn't need Google Fonts.
