@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.28"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.29"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -516,6 +516,7 @@
           ${open ? `<span class="n">${open}</span>` : ""}
           ${suggestButton(s.key, flag)}
           ${state.team && flag && st ? `<button data-act="reflag" title="Copy updated? Reset this section to 'Needs your review'">↺ Ask again</button>` : ""}
+          ${!state.team && st ? `<button data-act="undo-status" class="undo" title="Clicked by mistake? Put this section back to 'Needs your review'">↶ Undo</button>` : ""}
           ${state.team
             ? flag
               ? `<button data-act="flag" class="flag-btn remove" title="Remove this highlight (team only). The client will no longer be asked to review it.">✕ Remove highlight</button>`
@@ -1532,6 +1533,9 @@
         delete state.statuses[key];
         render();
         toast("Sent back to the client for review");
+      } else if (act === "undo-status") {
+        await setStatus(t.closest(".chip").dataset.key, "pending");
+        toast("Back to “Needs your review”");
       } else if (act === "approve" || act === "edits") {
         const key = t.closest(".chip").dataset.key;
         const cur = state.statuses[key]?.status;
@@ -1539,7 +1543,7 @@
           const wasNudged = state.nudged;
           await setStatus(key, cur === "approved" ? "pending" : "approved");
           // Approving the last section shows the "next page" prompt instead.
-          if (cur !== "approved" && wasNudged === state.nudged) toast("Section approved ✓");
+          if (cur !== "approved" && wasNudged === state.nudged) toast("Section approved ✓ · Clicked by mistake? Use ↶ Undo");
         } else {
           if (cur !== "needs_edits") await setStatus(key, "needs_edits");
           const sec = state.sections.find((s) => s.key === key);
@@ -1924,6 +1928,8 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .chip .n { background: #f24822; border-radius: 9px; padding: 0 6px; font-weight: 700; font-size: 11px; }
 .chip button { border: 0; border-radius: 7px; padding: 5px 9px; background: #333; color: #fff; font-size: 12px; white-space: nowrap; }
 .chip button:hover { background: #444; }
+.chip button.undo { background: #fff; color: #1e1e1e; font-weight: 600; }
+.chip button.undo:hover { background: #eee; }
 .chip button[data-act=approve].on { background: #14ae5c; }
 .chip button[data-act=edits].on { background: #f5a524; color: #1e1e1e; }
 .hl { position: absolute; pointer-events: none; border-radius: 6px; outline: 3px solid #ffc700; outline-offset: -3px;
