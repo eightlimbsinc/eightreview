@@ -2,6 +2,8 @@
 //   POST /.netlify/functions/recommend-background
 //        { pageId, sectionKey, label, items: [{ tag, text }] }   (team only)
 //        { pageId, sectionKey, scoreOnly: true }                  re-score the existing copy
+// Rewrite (same call as a new suggestion): if the current copy is under target it is revised from
+// its own score feedback instead of starting over, and the result is never worse than what was there.
 // Netlify answers 202 straight away (background function, up to 15 min). Progress is written
 // to flags/<pageId>[sectionKey].recommendation, which the overlay polls:
 //   status "writing" -> "scoring" -> ("improving" -> "scoring") -> "ready" | "error"
@@ -27,6 +29,11 @@ const shortfalls = (section) =>
 const rank = (section) => {
   const cats = Object.keys(CATEGORY_NAMES).map((k) => section[k]).filter((v) => v != null);
   return [shortfalls(section).length ? 0 : 1, cats.length ? Math.min(...cats) : 0, section.overall ?? 0];
+};
+// Which of a section's checks can apply: keyword-in-heading needs a heading, direct answer a question one.
+const shapeOf = (rec) => {
+  const headings = rec.items.filter((x) => /^h[1-6]$/.test(x.tag));
+  return { hasHeading: headings.length > 0, hasQuestion: headings.some((x) => x.recommended.trim().endsWith("?")) };
 };
 const better = (a, b) => {
   const [x, y] = [rank(a), rank(b)];
@@ -166,7 +173,7 @@ export default handle(async (req) => {
   }));
   const s = store();
   const page = await s.get(`pages/${pageId}`);
-  const existing = scoreOnly ? ((await s.get(`flags/${pageId}`)) || {})[key]?.recommendation : null;
+  const existing = ((await s.get(`flags/${pageId}`)) || {})[key]?.recommendation;
   if (!page || (scoreOnly ? !existing?.items?.length : !items.length)) return json({ error: "Nothing to write" }, 400);
   const project = page.projectId ? await s.get(`projects/${page.projectId}`) : null;
   const keywords = page.keywords || project?.keywords || "";
@@ -229,8 +236,7 @@ export default handle(async (req) => {
     const ev = reconcile(await ask(RUBRIC_PROMPT, `${article}\n\n${SECTION_MODE_NOTE}\n\n${RUBRIC_OUTPUT_NOTE}`, RUBRIC_SCHEMA));
     // Article-only checks never count against a section, whatever the evaluator returned.
     for (const id of ARTICLE_ONLY) ev.rubric_criteria[id] = { ...ev.rubric_criteria[id], assessed: false, earned: 0 };
-    const headings = rec.items.filter((x) => /^h[1-6]$/.test(x.tag));
-    const shape = { hasHeading: headings.length > 0, hasQuestion: headings.some((x) => x.recommended.trim().endsWith("?")) };
+    const shape = shapeOf(rec);
     return {
       section: sectionScores(ev.rubric_criteria, shape),
       gaps: sectionGaps(ev.rubric_criteria, shape),
@@ -246,10 +252,39 @@ export default handle(async (req) => {
     };
   }
 
+  // The copy already there, with its score, when it fits the section's current elements.
+  const prior =
+    !scoreOnly && existing?.items?.length === items.length && existing.evaluation?.section && existing.evaluation.rubric
+      ? {
+          rec: {
+            items: existing.items.map((x, i) => ({ ...x, original: items[i].original })),
+            primary_keyword: existing.primary_keyword || "",
+            seo_keywords: existing.seo_keywords || [],
+            aeo_longtail: existing.aeo_longtail || [],
+            rationale: existing.rationale || "",
+          },
+          evaluation: {
+            ...existing.evaluation,
+            gaps: sectionGaps(existing.evaluation.rubric, shapeOf(existing)),
+            improvements: existing.evaluation.improvements || [],
+          },
+        }
+      : null;
+
   try {
-    let rec = scoreOnly ? existing : await draft(brief);
-    if (!scoreOnly && !(await update(pageId, key, { status: "scoring", ...rec }))) return json({ ok: false });
-    let evaluation = await score(rec);
+    let rec, evaluation;
+    if (scoreOnly) {
+      rec = existing;
+      evaluation = await score(rec);
+    } else if (prior && shortfalls(prior.evaluation.section).length) {
+      // Rewrite of copy that's under target: improve it rather than start over.
+      ({ rec, evaluation } = prior);
+      if (!(await update(pageId, key, { status: "improving", ...rec }))) return json({ ok: false });
+    } else {
+      rec = await draft(brief);
+      if (!(await update(pageId, key, { status: "scoring", ...rec }))) return json({ ok: false });
+      evaluation = await score(rec);
+    }
 
     // Automatic revisions while the section scores under the bar, using the rubric's own feedback.
     for (let round = 0; !scoreOnly && round < MAX_REVISIONS && shortfalls(evaluation.section).length; round++) {
@@ -260,8 +295,10 @@ export default handle(async (req) => {
         `Your previous draft (same indexes):`,
         ...rec.items.map((x, i) => `[${i}] <${x.tag}> ${x.recommended}`),
         ``,
-        `The Blend360 rubric scored this page section ${(evaluation.section.overall / 20).toFixed(1)} out of 5. Every category must reach at least 4 out of 5; under target: ${shortfalls(evaluation.section).join(", ")}. Fix these gaps without inventing facts:`,
+        `The Blend360 rubric scored this page section ${(evaluation.section.overall / 20).toFixed(1)} out of 5. Every category must reach at least 4 out of 5; under target: ${shortfalls(evaluation.section).join(", ")}.`,
+        `Revise this draft rather than starting over: keep every element and phrase that already earns full marks, and change only what these checks need, without inventing facts:`,
         ...evaluation.gaps.map((g) => `- ${g}`),
+        `Evaluator's suggestions:`,
         ...evaluation.improvements.map((g) => `- ${g}`),
         `Ignore article-only requirements (meta title/description, word count, FAQ, cover image, slug).`,
       ].join("\n");
@@ -271,6 +308,10 @@ export default handle(async (req) => {
         rec = revised;
         evaluation = revisedEval;
       }
+    }
+    // A rewrite never ends worse than the copy that was there before it.
+    if (prior && shortfalls(evaluation.section).length && better(prior.evaluation.section, evaluation.section)) {
+      ({ rec, evaluation } = prior);
     }
     const { gaps, ...stored } = evaluation;
     const belowTarget = shortfalls(evaluation.section).length > 0;
