@@ -69,6 +69,8 @@ export default handle(async (req, context) => {
       anchor: cleanAnchor(body.anchor),
       sectionKey: clip(body.sectionKey, 120),
       sectionLabel: clip(body.sectionLabel, 200),
+      // Card of a tab / click-list switcher on a blank page (1-based), when the comment is on one.
+      card: Number.isInteger(body.card) && body.card > 0 && body.card < 100 ? body.card : null,
       viewport: Number.isFinite(body.viewport) ? Math.round(body.viewport) : null,
       copy,
       resolved: false,

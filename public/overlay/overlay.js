@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.30"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.31"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -377,6 +377,30 @@
     }
   }
 
+  // The switcher's whole component (titles plus the card beside them): the Webflow Tabs block, or
+  // the nearest ancestor of the titles that is clearly wider than them.
+  function scopeOf(menu) {
+    const tabs = menu.closest(".w-tabs");
+    if (tabs) return tabs;
+    const w = menu.getBoundingClientRect().width;
+    let e = menu.parentElement;
+    for (let i = 0; e && e !== document.body && i < 6; e = e.parentElement, i++) {
+      if (e.getBoundingClientRect().width >= w * 1.5) return e;
+    }
+    return menu.parentElement;
+  }
+
+  // Which card (1, 2, …) of a switcher an element belongs to: the loaded one, if the element sits in
+  // the switcher's card area. Blank pages only.
+  function cardFor(el) {
+    if (!CFG.blank || !el) return null;
+    const g = switchers().find((x) => x.scope.contains(el) && !x.menu.contains(el));
+    return g && g.active >= 0 ? g.active + 1 : null;
+  }
+
+  // The switcher a commented element belongs to, wherever its card is loaded.
+  const switcherOf = (el) => el && switcherList.find((x) => x.scope.contains(el) && !x.menu.contains(el));
+
   function switchers() {
     const out = [];
     for (const menu of document.querySelectorAll(".w-tab-menu, [role=tablist]")) {
@@ -384,13 +408,13 @@
       const items = [...menu.querySelectorAll(TAB_ITEM)].filter((el) => el.getClientRects().length);
       if (items.length < 2) continue;
       const active = items.findIndex((el) => el.classList.contains("w--current") || el.getAttribute("aria-selected") === "true");
-      out.push({ menu, items, active });
+      out.push({ menu, items, active, scope: scopeOf(menu) });
     }
     for (const [menu, g] of custom) {
       if (!menu.isConnected || out.some((o) => o.menu.contains(menu) || menu.contains(o.menu))) continue;
       const items = g.items.filter((el) => el.isConnected);
       const marked = activeIndex(items);
-      out.push({ menu, items, active: marked >= 0 ? marked : g.active });
+      out.push({ menu, items, active: marked >= 0 ? marked : g.active, scope: scopeOf(menu) });
     }
     return out;
   }
@@ -435,12 +459,23 @@
     }
     switcherList = CFG.blank ? switchers() : [];
     switchersEl.innerHTML = switcherList
-      .map(({ menu, items, active }, g) => {
+      .map(({ menu, items, active, scope }, g) => {
         const r = menu.getBoundingClientRect();
         if (!r.height) return "";
+        const counts = {};
+        for (const c of state.comments) {
+          if (!c.card || c.resolved) continue;
+          const el = resolveAnchor(c.anchor);
+          if (el && scope.contains(el)) counts[c.card] = (counts[c.card] || 0) + 1;
+        }
         return `<div class="switcher" style="left:${r.left + scrollX}px;top:${Math.max(4, r.top + scrollY - 34)}px">
           <span>${active >= 0 ? `Showing card <b>${active + 1}</b> of ${items.length}` : `${items.length} cards`}</span>
-          ${items.map((_, i) => `<button data-act="switch" data-g="${g}" data-i="${i}" class="${i === active ? "on" : ""}" title="Load card ${i + 1}">${i + 1}</button>`).join("")}
+          ${items
+            .map((_, i) => {
+              const n = counts[i + 1];
+              return `<button data-act="switch" data-g="${g}" data-i="${i}" class="${i === active ? "on" : ""}" title="Load card ${i + 1}${n ? ` · ${n} comment${n > 1 ? "s" : ""}` : ""}">${i + 1}${n ? `<i>${n}</i>` : ""}</button>`;
+            })
+            .join("")}
         </div>`;
       })
       .join("");
@@ -789,7 +824,7 @@
     popEl.dataset.for = c.id;
     popEl.innerHTML = `<div class="card thread">
       <div class="th-h">
-        <span>#${c.n}${c.sectionLabel ? ` · ${esc(c.sectionLabel)}` : ""}</span>
+        <span>#${c.n}${c.card ? ` · Card ${c.card}` : ""}${c.sectionLabel ? ` · ${esc(c.sectionLabel)}` : ""}</span>
         <span class="sp"></span>
         <button class="icon" data-act="resolve" title="${c.resolved ? "Reopen" : "Resolve"}">${c.resolved ? "↺" : "✓"}</button>
         ${c.mine || state.team ? `<button class="icon" data-act="delete-comment" title="${c.mine ? "Delete your comment" : "Delete this comment (team)"}">🗑</button>` : ""}
@@ -870,7 +905,7 @@
           ([label, items]) => `<div class="sb-sec">${esc(label)}</div>${items
             .map(
               (c) => `<button class="sb-item${c.resolved ? " resolved" : ""}" data-act="goto" data-id="${c.id}">
-              ${avatar(c.author)}<div class="sb-main"><div class="who">#${c.n} ${esc(c.author)}${c.resolved ? ` <span class="sb-done">Resolved</span>` : ""}</div>
+              ${avatar(c.author)}<div class="sb-main"><div class="who">#${c.n} ${esc(c.author)}${c.card ? ` <span class="sb-card">Card ${c.card}</span>` : ""}${c.resolved ? ` <span class="sb-done">Resolved</span>` : ""}</div>
               <div class="sb-meta"><time title="${ago(c.createdAt)}">${when(c.createdAt)}</time>${c.viewport ? ` · ${c.viewport < 768 ? "📱" : "🖥"} ${c.viewport}px` : ""}</div>
               ${c.anchor?.text ? `<div class="sb-on">On: “${esc(c.anchor.text.slice(0, 80))}”</div>` : ""}
               <div class="body">${esc(c.body || "")}${c.copy?.proposed ? `<div class="sb-copy">New copy: ${esc(c.copy.proposed)}</div>` : ""}</div>
@@ -1377,6 +1412,7 @@
       },
       sectionKey: sec?.key || "",
       sectionLabel: sec?.label || "",
+      card: cardFor(el),
       x: clientX + scrollX,
       y: clientY + scrollY,
       ai: null,
@@ -1404,6 +1440,7 @@
           anchor: d.anchor,
           sectionKey: d.sectionKey,
           sectionLabel: d.sectionLabel,
+          card: d.card,
           viewport: innerWidth,
           copy: d.copy,
         },
@@ -1465,6 +1502,12 @@
   function openComment(id) {
     const c = state.comments.find((x) => x.id === id);
     if (!c) return;
+    // A comment on a card that isn't loaded: load that card first, then open it.
+    const g = c.card && switcherOf(resolveAnchor(c.anchor));
+    if (g && g.active !== c.card - 1 && g.items[c.card - 1]) {
+      pressOnPage(g.items[c.card - 1]);
+      return void setTimeout(() => openComment(id), 450);
+    }
     state.draft = null;
     state.openId = id;
     popEl.innerHTML = "";
@@ -1980,6 +2023,10 @@
 .switcher button { border: 0; border-radius: 7px; min-width: 26px; padding: 4px 8px; background: #333; color: #fff; font-size: 12px; font-weight: 600; }
 .switcher button:hover { background: #444; }
 .switcher button.on { background: #ffc700; color: #1e1e1e; }
+.switcher button { position: relative; }
+.switcher button i { position: absolute; top: -7px; right: -6px; font-style: normal; font-size: 10px; line-height: 15px; min-width: 15px;
+  padding: 0 3px; border-radius: 8px; background: #f24822; color: #fff; }
+.sb-card { font-size: 10px; font-weight: 700; color: #1e1e1e; background: #ffe680; border-radius: 999px; padding: 0 6px; }
 .glass.picking { cursor: crosshair; }
 .glass[hidden], .flipbtn[hidden] { display: none; }
 .flipbtn { position: absolute; z-index: 1; border: 0; border-radius: 999px; padding: 7px 12px; background: #1e1e1e; color: #fff;

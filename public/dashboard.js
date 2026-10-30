@@ -319,7 +319,7 @@ function markdownExport(page, comments, status) {
   }
   lines.push(`## Comments`, ``);
   for (const c of comments.filter((c) => !c.resolved)) {
-    lines.push(`### #${c.n} · ${c.sectionLabel || "Page"} — ${c.author}`);
+    lines.push(`### #${c.n} · ${c.sectionLabel || "Page"}${c.card ? ` · Card ${c.card}` : ""} — ${c.author}`);
     if (c.anchor?.text) lines.push(`> On: "${c.anchor.text}"`);
     if (c.body) lines.push(``, c.body);
     if (c.copy?.proposed) {
@@ -378,6 +378,7 @@ async function renderDetail(id) {
         (c) => `<div class="card c ${c.resolved ? "resolved" : ""}">
         <div class="c-h">${avatar(c.author)}<b>${esc(c.author)}</b><span>#${c.n}</span>
           ${c.sectionLabel ? `<span class="tag">${esc(c.sectionLabel)}</span>` : ""}
+          ${c.card ? `<span class="tag">Card ${c.card}</span>` : ""}
           ${c.viewport ? `<span>${c.viewport < 768 ? "📱" : "🖥"} ${c.viewport}px</span>` : ""}
           <span>${when(c.createdAt)}</span><span class="sp"></span>
           <a class="btn light sm" href="${location.origin}/r/${page.id}#comment-${c.id}" target="_blank" rel="noopener">View on page</a>
