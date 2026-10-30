@@ -1,0 +1,54 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>BlendX tabs test</title>
+<style>
+body { font-family: sans-serif; margin: 0; background: #f4f2ee; }
+section { padding: 60px 40px; }
+.w-tabs, .adv { display: flex; gap: 30px; }
+.w-tab-menu, .list { width: 300px; }
+.w-tab-link, .item { display: block; padding: 18px 0; color: #999; font-size: 22px; text-decoration: none; border-right: 2px solid #ccc; cursor: pointer; }
+.w-tab-link.w--current, .item.is-active { color: #111; border-right-color: #0b2545; }
+.w-tab-content, .cards { flex: 1; }
+.w-tab-pane, .card { display: none; height: 300px; border-radius: 20px; background: #0b2a2a; color: #3ef; padding: 24px; font-size: 30px; }
+.w-tab-pane.w--tab-active, .card.is-active { display: block; }
+</style></head><body>
+<section><h2>Webflow tabs</h2>
+<div class="w-tabs">
+  <div class="w-tab-menu" role="tablist">
+    <a class="w-tab-link w--current" href="#p1" role="tab" aria-selected="true">Proven Success Rate</a>
+    <a class="w-tab-link" href="#p2" role="tab" aria-selected="false">Cost efficiency</a>
+    <a class="w-tab-link" href="#p3" role="tab" aria-selected="false">Faster Deployment</a>
+    <a class="w-tab-link" href="#p4" role="tab" aria-selected="false">Cloud Native</a>
+  </div>
+  <div class="w-tab-content">
+    <div class="w-tab-pane w--tab-active">Proven Success Rate <p>Card one copy</p></div>
+    <div class="w-tab-pane">Cost efficiency <p>Card two copy</p></div>
+    <div class="w-tab-pane">Faster Deployment <p>Card three copy</p></div>
+    <div class="w-tab-pane">Cloud Native <p>Leverages existing investment</p></div>
+  </div>
+</div></section>
+<section><h2>BlendX Advantage (custom click list)</h2>
+<div class="adv">
+  <div class="list">
+    <div class="item is-active">Proven Success Rate</div>
+    <div class="item">Cost efficiency</div>
+    <div class="item">Faster Deployment</div>
+    <div class="item">Cloud Native</div>
+  </div>
+  <div class="cards">
+    <div class="card is-active">Proven Success Rate</div>
+    <div class="card">Cost efficiency</div>
+    <div class="card">Faster Deployment</div>
+    <div class="card">Cloud Native</div>
+  </div>
+</div></section>
+<script>
+document.querySelectorAll(".w-tab-link").forEach((l, i, all) => l.addEventListener("click", (e) => {
+  e.preventDefault();
+  all.forEach((x, j) => { x.classList.toggle("w--current", i === j); x.setAttribute("aria-selected", i === j); });
+  document.querySelectorAll(".w-tab-pane").forEach((p, j) => p.classList.toggle("w--tab-active", i === j));
+}));
+document.querySelectorAll(".item").forEach((l, i, all) => l.addEventListener("click", () => {
+  all.forEach((x, j) => x.classList.toggle("is-active", i === j));
+  document.querySelectorAll(".card").forEach((p, j) => p.classList.toggle("is-active", i === j));
+}));
+</script></body></html>

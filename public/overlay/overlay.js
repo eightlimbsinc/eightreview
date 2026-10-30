@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.29"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.30"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -344,6 +344,108 @@
     return hits.find((s) => !hits.some((o) => o !== s && s.el.contains(o.el))) || hits[0];
   };
 
+  // ---------- switchers on blank pages ----------
+  // A blank page is frozen (the glass sheet takes the mouse), so tabs and "click a title, the card
+  // changes" lists can't be clicked. In browse mode a click on something clickable is passed through,
+  // and each switcher gets a numbered bar showing which card is loaded, to change it from there.
+  const TAB_ITEM = ".w-tab-link, [role=tab]";
+  const custom = new Map(); // container -> { items, active } for click lists without tab markup
+  let switcherList = [];
+
+  // Look-alike siblings: same tag and the same first class (state classes like "is-active" vary).
+  const twinsOf = (e) =>
+    [...e.parentElement.children].filter((c) => c.tagName === e.tagName && (c.classList[0] || "") === (e.classList[0] || ""));
+
+  // The one item carrying a class the others don't (is-active, w--current…), or -1.
+  function activeIndex(items) {
+    const odd = items.map((el) => [...el.classList].filter((c) => !items.every((o) => o.classList.contains(c))).length);
+    const marked = odd.map((n, i) => (n ? i : -1)).filter((i) => i >= 0);
+    return marked.length === 1 ? marked[0] : -1;
+  }
+
+  // Click lists with no tab markup: 2+ look-alike siblings with a hand cursor, exactly one marked
+  // active. Found on load; a list that marks nothing is learned the first time an item is pressed.
+  function findCustomSwitchers() {
+    for (const el of document.querySelectorAll("body *")) {
+      const parent = el.parentElement;
+      if (!parent || custom.has(parent) || host.contains(el) || el.closest(".w-tab-menu, [role=tablist]")) continue;
+      if (parent.firstElementChild !== el || parent.children.length < 2) continue;
+      const items = twinsOf(el);
+      if (items.length < 2 || items.length !== parent.children.length) continue;
+      if (getComputedStyle(el).cursor !== "pointer" || el.closest("nav, header, footer")) continue;
+      if (activeIndex(items) >= 0) custom.set(parent, { items, active: -1 });
+    }
+  }
+
+  function switchers() {
+    const out = [];
+    for (const menu of document.querySelectorAll(".w-tab-menu, [role=tablist]")) {
+      if (host.contains(menu)) continue;
+      const items = [...menu.querySelectorAll(TAB_ITEM)].filter((el) => el.getClientRects().length);
+      if (items.length < 2) continue;
+      const active = items.findIndex((el) => el.classList.contains("w--current") || el.getAttribute("aria-selected") === "true");
+      out.push({ menu, items, active });
+    }
+    for (const [menu, g] of custom) {
+      if (!menu.isConnected || out.some((o) => o.menu.contains(menu) || menu.contains(o.menu))) continue;
+      const items = g.items.filter((el) => el.isConnected);
+      const marked = activeIndex(items);
+      out.push({ menu, items, active: marked >= 0 ? marked : g.active });
+    }
+    return out;
+  }
+
+  // The thing a click on a frozen page should press: a link, button, tab or anything with a hand cursor.
+  function clickTarget(el) {
+    for (let e = el, i = 0; e && e !== document.body && i < 6; e = e.parentElement, i++) {
+      if (e.matches(`a, button, ${TAB_ITEM}, [onclick]`) || getComputedStyle(e).cursor === "pointer") return e;
+    }
+    return null;
+  }
+
+  // Remember which item of a click list was pressed: the nearest ancestor with look-alike siblings.
+  function learnSwitch(target) {
+    for (let e = target; e && e.parentElement && e !== document.body; e = e.parentElement) {
+      if (e.closest(".w-tab-menu, [role=tablist]")) return;
+      const twins = twinsOf(e);
+      if (twins.length >= 2) return void custom.set(e.parentElement, { items: twins, active: twins.indexOf(e) });
+    }
+  }
+
+  function pressOnPage(target) {
+    const a = target.closest("a[href]");
+    const href = a?.getAttribute("href") || "";
+    const leaves = a && !href.startsWith("#") && !href.startsWith("javascript:") && new URL(a.href, location.href).pathname !== location.pathname;
+    if (leaves) return toast("Links to other pages are off on the blank page");
+    learnSwitch(target);
+    target.click();
+    // Let the page swap the card (and any animation finish) before redrawing.
+    setTimeout(render, 60);
+    setTimeout(render, 600);
+  }
+
+  let scanned = false;
+  if (CFG.blank) addEventListener("load", () => setTimeout(render, 300));
+
+  function renderSwitchers() {
+    // Hand cursors are only reliable once the page's CSS has loaded.
+    if (CFG.blank && !scanned && document.readyState === "complete") {
+      scanned = true;
+      findCustomSwitchers();
+    }
+    switcherList = CFG.blank ? switchers() : [];
+    switchersEl.innerHTML = switcherList
+      .map(({ menu, items, active }, g) => {
+        const r = menu.getBoundingClientRect();
+        if (!r.height) return "";
+        return `<div class="switcher" style="left:${r.left + scrollX}px;top:${Math.max(4, r.top + scrollY - 34)}px">
+          <span>${active >= 0 ? `Showing card <b>${active + 1}</b> of ${items.length}` : `${items.length} cards`}</span>
+          ${items.map((_, i) => `<button data-act="switch" data-g="${g}" data-i="${i}" class="${i === active ? "on" : ""}" title="Load card ${i + 1}">${i + 1}</button>`).join("")}
+        </div>`;
+      })
+      .join("");
+  }
+
   // ---------- shadow UI ----------
   const host = document.createElement("div");
   host.id = "eightreview-root";
@@ -359,6 +461,7 @@
       <div class="connector" hidden><svg><line/><circle r="4"/></svg></div>
       <div class="hls"></div>
       <div class="chips"></div>
+      <div class="switchers"></div>
       <div class="pins"></div>
       <div class="pop"></div>
     </div>
@@ -405,6 +508,7 @@
   const pinsEl = $(".pins");
   const chipsEl = $(".chips");
   const hlsEl = $(".hls");
+  const switchersEl = $(".switchers");
   const popEl = $(".pop");
   const sidebarEl = $(".sidebar");
 
@@ -528,6 +632,7 @@
       }
     }
 
+    renderSwitchers();
     renderPopover();
     if (state.sidebar) renderSidebar();
 
@@ -1452,6 +1557,10 @@
         popEl.innerHTML = "";
         render();
         toast("Comment deleted");
+      } else if (act === "switch") {
+        const g = switcherList[+t.dataset.g];
+        const item = g?.items[+t.dataset.i];
+        if (item) pressOnPage(item);
       } else if (act === "flip") {
         toggleFlip(state.flipTarget);
       } else if (act === "flip-comment") {
@@ -1739,6 +1848,8 @@
       const el = pageAt(x, y);
       showHover(el);
       showFlipButton(el);
+      // On a frozen blank page, show a hand over tabs and other things that still work when clicked.
+      glass.style.cursor = state.mode === "browse" && el && clickTarget(el) ? "pointer" : "";
     });
   });
   glass.addEventListener("pointerleave", () => (hoverBox.style.display = "none"));
@@ -1754,7 +1865,10 @@
       startDraft(el, e.clientX, e.clientY);
       return;
     }
-    // Browse mode on a frozen (blank) page: a click on the page just closes open panels.
+    // Browse mode on a frozen (blank) page: tabs and other switchers still work; otherwise a click
+    // on the page just closes open panels.
+    const target = clickTarget(el);
+    if (target) return pressOnPage(target);
     if (state.pagesOpen || (state.openId && !state.draft)) {
       state.pagesOpen = false;
       state.openId = null;
@@ -1859,6 +1973,13 @@
 * { box-sizing: border-box; font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
 .layer { position: absolute; top: 0; left: 0; }
 .glass { position: fixed; inset: 0; z-index: -1; cursor: default; background: transparent; }
+.switcher { position: absolute; display: flex; align-items: center; gap: 4px; background: rgba(30,30,30,.92); color: #ddd;
+  border-radius: 10px; padding: 4px 4px 4px 10px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.2); pointer-events: auto; white-space: nowrap; }
+.switcher span { margin-right: 4px; }
+.switcher b { color: #fff; }
+.switcher button { border: 0; border-radius: 7px; min-width: 26px; padding: 4px 8px; background: #333; color: #fff; font-size: 12px; font-weight: 600; }
+.switcher button:hover { background: #444; }
+.switcher button.on { background: #ffc700; color: #1e1e1e; }
 .glass.picking { cursor: crosshair; }
 .glass[hidden], .flipbtn[hidden] { display: none; }
 .flipbtn { position: absolute; z-index: 1; border: 0; border-radius: 999px; padding: 7px 12px; background: #1e1e1e; color: #fff;
