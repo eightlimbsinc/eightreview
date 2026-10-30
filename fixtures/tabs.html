@@ -9,7 +9,11 @@ section { padding: 60px 40px; }
 .w-tab-link.w--current, .item.is-active { color: #111; border-right-color: #0b2545; }
 .w-tab-content, .cards { flex: 1; }
 .w-tab-pane, .card { display: none; height: 300px; border-radius: 20px; background: #0b2a2a; color: #3ef; padding: 24px; font-size: 30px; }
-.w-tab-pane.w--tab-active, .card.is-active { display: block; }
+.w-tab-pane.w--tab-active { display: block; }
+/* Custom list: cards stacked on top of each other, only the active one visible (like BlendX). */
+.cards { position: relative; height: 300px; }
+.card { display: block; position: absolute; inset: 0; opacity: 0; transition: opacity .3s; }
+.card.is-active { opacity: 1; z-index: 1; }
 </style></head><body>
 <section><h2>Webflow tabs</h2>
 <div class="w-tabs">

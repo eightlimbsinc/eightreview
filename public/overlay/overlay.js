@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.31"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.32"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -589,11 +589,16 @@
     const visible = state.comments.filter((c) => state.showResolved || !c.resolved);
     const placed = [];
     pinsEl.innerHTML = "";
+    renderSwitchers();
     for (const c of visible) {
       const el = resolveAnchor(c.anchor);
       const p = el && docPoint(el, c.anchor.xPct, c.anchor.yPct);
       c._hidden = !p;
-      if (!p) continue;
+      // Cards of a switcher can sit on top of each other, so a comment on card 2 would show on card 1.
+      const g = c.card && switcherOf(el);
+      c._otherCard = Boolean(g && g.active >= 0 && g.active !== c.card - 1);
+      if (c._otherCard) c._hidden = true;
+      if (c._hidden) continue;
       c._away = facingAway(el);
       placed.push(c);
       const pin = document.createElement("button");
@@ -601,7 +606,7 @@
       pin.style.left = `${p.x}px`;
       pin.style.top = `${p.y}px`;
       pin.dataset.id = c.id;
-      pin.innerHTML = `${avatar(c.author)}<b>${c.n}</b>${c._away ? `<i title="On the other side of this card">↻</i>` : ""}`;
+      pin.innerHTML = `${avatar(c.author)}<b>${c.n}</b>${c.card ? `<em>Card ${c.card}</em>` : ""}${c._away ? `<i title="On the other side of this card">↻</i>` : ""}`;
       pin.title = c._away
         ? "This comment is on the other side of a flipping card. Flip the card to see it."
         : `${c.author}: ${c.body || c.copy?.proposed || ""}`.slice(0, 120);
@@ -667,7 +672,6 @@
       }
     }
 
-    renderSwitchers();
     renderPopover();
     if (state.sidebar) renderSidebar();
 
@@ -909,7 +913,9 @@
               <div class="sb-meta"><time title="${ago(c.createdAt)}">${when(c.createdAt)}</time>${c.viewport ? ` · ${c.viewport < 768 ? "📱" : "🖥"} ${c.viewport}px` : ""}</div>
               ${c.anchor?.text ? `<div class="sb-on">On: “${esc(c.anchor.text.slice(0, 80))}”</div>` : ""}
               <div class="body">${esc(c.body || "")}${c.copy?.proposed ? `<div class="sb-copy">New copy: ${esc(c.copy.proposed)}</div>` : ""}</div>
-              ${c._hidden ? `<div class="hint">Hidden right now (another screen size, tab or slide)</div>` : ""}
+              ${c._otherCard
+                ? `<div class="hint">On card ${c.card} · click to load it</div>`
+                : c._hidden ? `<div class="hint">Hidden right now (another screen size, tab or slide)</div>` : ""}
               ${c._away ? `<div class="hint">↻ On the other side of a flipping card</div>` : ""}
               ${c.replies
                 .map((r) => `<div class="sb-reply"><b>${esc(r.author)}</b> <time>${when(r.createdAt)}</time><div>${esc(r.body || "")}</div></div>`)
@@ -2076,9 +2082,10 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .progress.done { color: #4ade80; }
 .progress:empty { display: none; }
 
-.pin { position: absolute; transform: translate(-4px, -100%); display: flex; align-items: center; gap: 4px; padding: 3px 8px 3px 3px;
+.pin { position: absolute; transform: translate(-4px, -100%); display: flex; white-space: nowrap; align-items: center; gap: 4px; padding: 3px 8px 3px 3px;
   background: #fff; border: 0; border-radius: 16px 16px 16px 2px; box-shadow: 0 2px 8px rgba(0,0,0,.25); font-size: 12px; color: #1e1e1e; }
 .pin b { font-weight: 700; }
+.pin em { white-space: nowrap; font-style: normal; font-size: 10px; font-weight: 700; color: #1e1e1e; background: #ffe680; border-radius: 999px; padding: 0 5px; }
 .pin:hover, .pin.active { box-shadow: 0 0 0 2px #0d99ff, 0 4px 12px rgba(0,0,0,.3); }
 .pin.resolved { opacity: .55; }
 .pin.away { opacity: .6; background: #f3f3f3; border: 1px dashed #999; }
