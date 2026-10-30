@@ -8,10 +8,10 @@ export async function pageSummary(page) {
     s.get(`status/${page.id}`),
     s.get(`flags/${page.id}`),
   ]);
-  // When the team has flagged sections, only those count towards the client's progress.
+  // Only highlighted sections count towards the client's progress.
   const flagged = Object.keys(flags || {});
   const st = Object.entries(status || {})
-    .filter(([key]) => !flagged.length || flagged.includes(key))
+    .filter(([key]) => flagged.includes(key))
     .map(([, v]) => v);
   const counts = {
     comments: comments.length,

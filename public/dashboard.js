@@ -335,12 +335,13 @@ function markdownExport(page, comments, status) {
 async function renderDetail(id) {
   const view = app;
   view.innerHTML = `<p class="muted" style="margin-top:24px">Loading…</p>`;
-  let page, comments, status;
+  let page, comments, status, flags;
   try {
-    [page, comments, status] = await Promise.all([
+    [page, comments, status, { flags }] = await Promise.all([
       api(`/api/pages/${id}`),
       api(`/api/comments?page=${id}`),
       api(`/api/status?page=${id}`),
+      api(`/api/flags?page=${id}`),
     ]);
   } catch (e) {
     view.innerHTML = `<a class="back" href="#/">← Projects</a><p class="err">${esc(e.message)}</p>`;
@@ -350,7 +351,8 @@ async function renderDetail(id) {
   const shown = comments.filter((c) =>
     filter === "open" ? !c.resolved : filter === "copy" ? c.copy?.proposed : filter === "resolved" ? c.resolved : true,
   );
-  const sections = Object.entries(status);
+  // Only highlighted sections are reviewed; older auto-marked sections are left out.
+  const sections = Object.entries(status).filter(([key]) => flags?.[key]);
 
   const back = page.projectId ? `#/project/${page.projectId}` : "#/";
   view.innerHTML = `<a class="back" href="${back}">← Project</a>

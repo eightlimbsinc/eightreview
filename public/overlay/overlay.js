@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.32"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.33"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -621,9 +621,8 @@
         if (!r.height) continue;
         const flag = state.flags[s.key];
         const st = state.statuses[s.key]?.status;
-        // Only highlighted sections get a bar (the team adds them with Highlight area); a detected
-        // section someone already approved or sent back keeps its bar so that answer stays visible.
-        if (!flag && !st) continue;
+        // Only highlighted sections get a bar (the team adds them with Highlight area).
+        if (!flag) continue;
         const open = state.comments.filter((c) => c.sectionKey === s.key && !c.resolved).length;
 
         const away = facingAway(s.members?.[0] || s.el);
@@ -1452,7 +1451,8 @@
         },
       });
       state.comments.push(c);
-      if (d.sectionKey && !state.statuses[d.sectionKey]) await setStatus(d.sectionKey, "needs_edits", false);
+      // A comment on a highlighted section counts as asking for edits there; elsewhere it's just a comment.
+      if (d.sectionKey && state.flags[d.sectionKey] && !state.statuses[d.sectionKey]) await setStatus(d.sectionKey, "needs_edits", false);
       state.draft = null;
       state.openId = c.id;
       state.mode = "browse";
