@@ -8,7 +8,7 @@
 // Pipeline: write (high effort) -> proofread -> score with the Blend360 rubric -> while the section
 // score or any of its four category scores is under TARGET (4 out of 5), revise using the rubric's feedback -> proofread -> re-score
 // (up to MAX_REVISIONS times), keeping whichever version scored best. A suggestion that still misses
-// the target is saved with belowTarget and shown to the team only.
+// the target is saved with belowTarget (the team gets a note; the client still sees it).
 import Anthropic from "@anthropic-ai/sdk";
 import { store, readBody, isAdmin, clip, stripTags, handle, json } from "./_lib/store.mjs";
 import { RUBRIC_PROMPT, RUBRIC_SCHEMA, RUBRIC_OUTPUT_NOTE, SECTION_MODE_NOTE, ARTICLE_ONLY, reconcile, sectionScores, sectionGaps } from "./_lib/rubric.mjs";

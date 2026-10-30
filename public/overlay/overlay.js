@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.33"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.34"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -1086,13 +1086,13 @@
   const TAG_NAMES = { h1: "Main heading", h2: "Heading", h3: "Heading", h4: "Small heading", h5: "Small heading", h6: "Small heading",
     p: "Paragraph", li: "List item", a: "Button / link", button: "Button", blockquote: "Quote", figcaption: "Caption", label: "Label" };
   const pending = (r) => r && ["writing", "scoring", "improving"].includes(r.status);
-  // Clients only ever see a finished suggestion whose total and every category scored 4 out of 5 or
-  // more, never a draft that's still being scored or improved.
+  // Clients see every finished suggestion, never a draft that's still being written, scored or
+  // improved. Copy under 4 / 5 on any score gets a note for the team only.
   const TARGET = 80;
   const SCORE_NAMES = { seo: "SEO", aeo: "AEO", brand_voice: "Voice", content_quality: "Quality", overall: "Total" };
   const lowScores = (sec) => Object.keys(SCORE_NAMES).filter((k) => sec?.[k] != null && sec[k] < TARGET);
   const belowTarget = (r) => !r.evaluation?.section || lowScores(r.evaluation.section).length > 0;
-  const visibleTo = (r) => r?.items?.length && (state.team || (!pending(r) && !belowTarget(r)));
+  const visibleTo = (r) => r?.items?.length && (state.team || !pending(r));
 
   function sectionItems(sec) {
     const items = [];
@@ -1269,9 +1269,9 @@
         .join("")}</div>
       ${r.rationale && !editing ? `<p class="sp-why"><b>Why it's better:</b> ${esc(r.rationale)}</p>` : ""}
       ${state.team && !pending(r) && belowTarget(r)
-        ? `<div class="sp-warn"><b>Hidden from the client:</b> ${r.evaluation?.section?.overall != null
-            ? `every score needs 4 / 5 or more, and the best version is still under on ${lowScores(r.evaluation.section).map((k) => `${SCORE_NAMES[k]} (${outOf5(r.evaluation.section[k])})`).join(", ")}.`
-            : "it hasn't been scored yet."}
+        ? `<div class="sp-warn"><b>Team note:</b> ${r.evaluation?.section?.overall != null
+            ? `under the 4 / 5 target on ${lowScores(r.evaluation.section).map((k) => `${SCORE_NAMES[k]} (${outOf5(r.evaluation.section[k])})`).join(", ")}.`
+            : "this copy hasn't been scored yet."}
           Try ↻ Rewrite, ideally with a team note naming the keyword or audience.</div>`
         : ""}
       ${pending(r)
