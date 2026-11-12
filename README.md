@@ -78,5 +78,6 @@ Notes:
 - Sections are detected from `<section>` tags (Webflow's default). Add `data-review-section="name"` to any element to make it a reviewable section explicitly.
 - Review links are unguessable IDs, not passwords — anyone with the link can comment.
 - Links to pages that aren't in the project open the original staging site (outside the review).
+- **Change URL** (dashboard, per page) points a page and its blank versions at a new address, keeping comments and highlights, e.g. when a live site starts refusing EightReview (a 403 from bot protection): switch to the page's webflow.io staging address, or ask the site's admin to allow EightReview.
 - **Password-protected staging:** set the Webflow site password on the project (dashboard → **Set staging password**). The server logs in through Webflow's password screen and caches the login cookie; the password is never sent to the browser.
 - Webflow staging sitemaps need **Site settings → SEO → Auto-generate sitemap** turned on; URLs are mapped onto the staging domain automatically.

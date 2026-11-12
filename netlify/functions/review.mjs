@@ -34,6 +34,11 @@ export default handle(async (req, context) => {
   } catch (e) {
     return errorPage(e.message || `Could not reach ${page.url}`);
   }
+  if (upstream.status === 403 || upstream.status === 429)
+    return errorPage(
+      `${new URL(page.url).host} is refusing EightReview's requests (error ${upstream.status}), usually because the site's bot protection is on. ` +
+        `On the dashboard, use Change URL to point this page at its webflow.io staging address (comments are kept), or ask the site's admin to allow EightReview.`,
+    );
   if (!upstream.ok) return errorPage(`The staging page returned an error (${upstream.status}).`);
 
   const reqUrl = new URL(req.url);

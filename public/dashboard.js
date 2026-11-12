@@ -198,6 +198,7 @@ async function renderProject(id) {
           ${p.blank ? `<button class="btn light sm" data-version="${p.id}" title="Add another blank copy of this page with its own comments (Blank 2, Blank 3…)">+ Blank version</button>` : ""}
           <button class="btn light sm" data-blank="${p.id}" data-val="${!p.blank}" ${p.versionOf ? "hidden" : ""} title="${p.blank ? "Review the real page copy instead" : "Review the layout with copy blanked out, next to the live page"}">${p.blank ? "Use real copy" : "Make blank"}</button>
           <button class="btn light sm" data-rename="${p.id}" data-name="${esc(p.name)}">Rename</button>
+          ${p.versionOf ? "" : `<button class="btn light sm" data-reurl="${p.id}" data-url="${esc(p.url)}" title="Point this page at another address (e.g. its webflow.io staging copy). Comments and highlights are kept.">Change URL</button>`}
           <a class="btn light sm" href="#/page/${p.id}">Feedback</a>
           <button class="btn light sm" data-delpage="${p.id}" data-name="${esc(p.name)}" style="color:var(--red)">✕</button>
         </div></div>`)
@@ -276,6 +277,19 @@ async function renderProject(id) {
         const name = prompt("Page name:", b.dataset.name);
         if (!name) return;
         await api(`/api/pages/${b.dataset.rename}`, { method: "PATCH", body: { name } });
+        renderProject(id);
+      }),
+  );
+  app.querySelectorAll("[data-reurl]").forEach(
+    (b) =>
+      (b.onclick = async () => {
+        const url = prompt("New address for this page (comments and highlights are kept):", b.dataset.url);
+        if (!url || url === b.dataset.url) return;
+        try {
+          await api(`/api/pages/${b.dataset.reurl}`, { method: "PATCH", body: { url } });
+        } catch (e) {
+          return alert(e.message);
+        }
         renderProject(id);
       }),
   );

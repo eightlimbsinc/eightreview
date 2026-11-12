@@ -129,6 +129,11 @@ export default handle(async (req, context) => {
     }
     const updated = { ...page, ...fields, updatedAt: new Date().toISOString() };
     await s.setJSON(pageKey(id), updated);
+    // A new address applies to the page's blank versions too: they're copies of the same page.
+    if (fields.url && !page.versionOf) {
+      const versions = (await projectPages(page.projectId)).filter((p) => p.versionOf === id);
+      await Promise.all(versions.map((v) => s.setJSON(pageKey(v.id), { ...v, url: fields.url, updatedAt: updated.updatedAt })));
+    }
     return json(updated);
   }
 

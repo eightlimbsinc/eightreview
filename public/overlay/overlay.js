@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.35"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.37"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -1505,14 +1505,15 @@
     render();
   }
 
-  function openComment(id) {
+  function openComment(id, tries = 0) {
     const c = state.comments.find((x) => x.id === id);
     if (!c) return;
-    // A comment on a card that isn't loaded: load that card first, then open it.
+    // A comment on a card that isn't loaded: load that card first, then open it (once; if the card
+    // doesn't switch, open the comment anyway).
     const g = c.card && switcherOf(resolveAnchor(c.anchor));
-    if (g && g.active !== c.card - 1 && g.items[c.card - 1]) {
+    if (!tries && g && g.active !== c.card - 1 && g.items[c.card - 1]) {
       pressOnPage(g.items[c.card - 1]);
-      return void setTimeout(() => openComment(id), 450);
+      return void setTimeout(() => openComment(id, 1), 450);
     }
     state.draft = null;
     state.openId = id;
