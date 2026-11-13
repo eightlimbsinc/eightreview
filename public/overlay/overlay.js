@@ -10,7 +10,7 @@
   const API = CFG.api || "";
   const PAGE = CFG.pageId;
   const NAME_KEY = "eightreview:name";
-  const VERSION = "2026-10-28.37"; // keep in sync with netlify/functions/_lib/version.mjs
+  const VERSION = "2026-10-28.38"; // keep in sync with netlify/functions/_lib/version.mjs
   const PROJECT = CFG.project;
   const SIBLINGS = CFG.pages || [];
   const pageIndex = SIBLINGS.findIndex((p) => p.id === (CFG.rootId || PAGE));
@@ -1094,6 +1094,13 @@
   const belowTarget = (r) => !r.evaluation?.section || lowScores(r.evaluation.section).length > 0;
   const visibleTo = (r) => r?.items?.length && (state.team || !pending(r));
 
+  // How many lines the copy takes up on the page right now, so suggestions can fit the same space.
+  function lineCount(el) {
+    const cs = getComputedStyle(el);
+    const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.2;
+    return lh ? Math.max(1, Math.round(el.getBoundingClientRect().height / lh)) : null;
+  }
+
   function sectionItems(sec) {
     const items = [];
     const seen = new Set();
@@ -1110,7 +1117,7 @@
         const text = cleanText(el);
         if (!text) continue;
         seen.add(el);
-        items.push({ tag: el.tagName.toLowerCase(), text: text.slice(0, 800) });
+        items.push({ tag: el.tagName.toLowerCase(), text: text.slice(0, 800), lines: lineCount(el) });
       }
     }
     return items;

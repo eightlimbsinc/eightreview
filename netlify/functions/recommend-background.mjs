@@ -70,8 +70,10 @@ Content quality
   copy rather than generic phrases. Never invent statistics, client names, awards, product names or claims; keep
   every number and fact from the current copy unless the team note says otherwise.
 - [25] Flawless grammar, spelling and punctuation.
-Keep each element's role and rough length: headings short; stat labels a few words; buttons 2-4 words, action-led;
-paragraphs 1-3 sentences unless the original is longer.
+Fit the space: the copy goes back into the same page design, so each element must fit where the original sits.
+Every input element gives the original's length and a character limit: never go over the limit, and keep to the
+same number of lines or fewer. Work keywords in by rephrasing, never by adding sentences. Keep each element's role:
+headings short; stat labels a few words; buttons 2-4 words, action-led.
 
 Before answering, re-read every sentence you wrote: it must be grammatical and natural when read aloud
 (subject-verb agreement, no doubled or missing words, no awkward keyword insertion). Never force a keyword
@@ -108,6 +110,11 @@ Fix only grammar, spelling, punctuation, subject-verb agreement, doubled or miss
 Do not change meaning, facts, numbers, tone or length. Keep every protected phrase exactly as written (same words,
 same order); if a protected phrase makes a sentence ungrammatical, rephrase the words around it instead.
 Return every element with the same index, even when nothing needed fixing.`;
+
+const TRIMMER = `You are a copy editor fitting website copy back into a fixed page design.
+Shorten each element to its character limit or less. Keep the meaning, the facts, every number, and every protected
+phrase exactly as written (same words, same order); cut filler, merge or drop the least important clause, and keep it
+grammatical and natural. Return every element you were given, with the same index.`;
 
 const PROOF_SCHEMA = {
   type: "object",
@@ -170,7 +177,10 @@ export default handle(async (req) => {
   const items = (Array.isArray(body.items) ? body.items : []).slice(0, 30).map((it) => ({
     tag: TAGS.has(String(it.tag).toLowerCase()) ? String(it.tag).toLowerCase() : "p",
     original: clip(it.text, 800),
+    lines: Number.isInteger(it.lines) && it.lines > 0 && it.lines < 40 ? it.lines : null,
   }));
+  // Room for the new copy: about the original's length (10% and a few characters of slack).
+  for (const it of items) it.maxChars = Math.ceil(it.original.length * 1.1) + 5;
   const s = store();
   const page = await s.get(`pages/${pageId}`);
   const existing = ((await s.get(`flags/${pageId}`)) || {})[key]?.recommendation;
@@ -191,7 +201,7 @@ export default handle(async (req) => {
     `Section: ${clip(body.label, 200) || "unnamed"}`,
     `Team note: ${clip(body.note, 300) || "none"}`,
     `Current copy, one element per line as [index] <tag> text:`,
-    ...items.map((it, i) => `[${i}] <${it.tag}> ${it.original}`),
+    ...items.map((it, i) => `[${i}] <${it.tag}> (${it.lines ? `${it.lines} line${it.lines > 1 ? "s" : ""}, ` : ""}${it.original.length} characters; limit ${it.maxChars}) ${it.original}`),
   ].join("\n");
 
   // Write (or revise) -> proofread -> keep only keywords that really appear in the copy.
@@ -208,6 +218,25 @@ export default handle(async (req) => {
     );
     const fixed = new Map((proof.items || []).map((x) => [x.index, x.text]));
     out = out.map((x, i) => ({ ...x, recommended: clip(stripTags(fixed.get(i)) || x.recommended, 1200) }));
+    // Anything still longer than the original's space gets trimmed to fit, keeping the keywords.
+    const over = out.map((x, i) => [x, i]).filter(([x]) => x.recommended.length > x.maxChars);
+    if (over.length) {
+      const trim = await ask(
+        TRIMMER,
+        [
+          `Protected phrases (keep exactly): ${protectedTerms.join(" | ") || "none"}`,
+          ``,
+          ...over.map(([x, i]) => `[${i}] <${x.tag}> (limit ${x.maxChars} characters, now ${x.recommended.length}) ${x.recommended}`),
+        ].join("\n"),
+        PROOF_SCHEMA,
+        "medium",
+      );
+      const short = new Map((trim.items || []).map((x) => [x.index, stripTags(x.text)]));
+      out = out.map((x, i) => {
+        const t = short.get(i);
+        return t && t.length < x.recommended.length ? { ...x, recommended: clip(t, 1200) } : x;
+      });
+    }
     const all = out.map((x) => x.recommended.toLowerCase()).join(" \n ");
     // Only keep phrases that really appear, so every highlight is real.
     const used = (list) => [...new Set((list || []).map((k) => String(k).trim()).filter((k) => k && all.includes(k.toLowerCase())))].slice(0, 8);

@@ -505,6 +505,8 @@ a call to action), not a full article. Apply the rubric as follows:
   makes no claim that needs proof, give full marks. Never require statistics, citations or sources
   that were not supplied.
 - q_mechanics: judge as written.
+- The copy must fit the page's existing design at about its current length: never suggest making it
+  longer or adding sentences.
 - Improvements must be things this section's copy can change. Never suggest meta titles or
   descriptions, word count, more H2s, an FAQ, images, alt text, slugs or new sections.`;
 
